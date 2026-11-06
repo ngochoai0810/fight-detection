@@ -1,0 +1,7 @@
+split,label,clips,duration_mean
+test,Fight,200,5.0
+test,NonFight,200,5.0
+train,Fight,695,5.0
+train,NonFight,697,5.0
+val,Fight,105,5.0
+val,NonFight,103,5.0

@@ -1,0 +1,17 @@
+{
+  "threshold": 0.07901776989456266,
+  "accuracy": 0.7225,
+  "precision": 0.6468646864686468,
+  "recall": 0.98,
+  "f1": 0.779324055666004,
+  "roc_auc": 0.83225,
+  "tp": 196,
+  "fp": 107,
+  "fn": 4,
+  "tn": 93,
+  "model": "m2",
+  "fps": 87.5,
+  "size_mb": 3.2,
+  "device": "Tesla T4",
+  "test_clips": 400
+}

@@ -1,0 +1,15 @@
+{
+  "frames": "/tmp/fight/crops",
+  "out": "results/m3",
+  "arch": "resnet18",
+  "no_pretrained": false,
+  "image_size": 224,
+  "epochs": 30,
+  "patience": 5,
+  "batch_size": 8,
+  "lr": 0.0001,
+  "num_workers": 2,
+  "seed": 42,
+  "hidden_size": 256,
+  "freeze_backbone": false
+}
