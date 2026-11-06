@@ -2,8 +2,7 @@
 
 **Đề tài 19:** Phát hiện hành vi bất thường/khả nghi trong video giám sát an ninh  
 **Nhóm thực hiện:** Hoài, Ngọc  
-**Ngôn ngữ:** Python, PyTorch  
-**Phiên bản:** 1.0.0 (Hoàn thành)
+**Ngôn ngữ:** Python, PyTorch
 
 ## 📋 Mô tả dự án
 
@@ -50,16 +49,6 @@ Tổng cộng: 2,000 clip video
 - **Độ phân giải:** 640×360 đến 1280×720
 - **Tỷ lệ lớp:** Cân bằng 1:1
 - **Chia tập:** Theo video (không chia frame để tránh rò rỉ dữ liệu)
-
-### ⚠️ Lưu ý pháp lý
-
-RWF-2000 yêu cầu xin phép từ **SMIIP Lab** trước khi sử dụng hoặc phân phối lại. 
-
-**Các tùy chọn:**
-1. **Gửi form xin phép:** https://github.com/mchengny/RWF2000-Video-Database-for-Violence-Detection
-2. **Sử dụng Kaggle mirror:** `vulamnguyen/rwf2000` (nhanh hơn, đã được cấp phép)
-
-Dữ liệu không được commit lên repository này.
 
 ---
 
