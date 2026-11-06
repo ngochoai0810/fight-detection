@@ -1,0 +1,18 @@
+# Du lieu va trong so
+data/*
+!data/.gitkeep
+*.pt
+*.pth
+*.avi
+*.mp4
+*.zip
+results.zip
+runs/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
