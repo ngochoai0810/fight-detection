@@ -10,3 +10,4 @@ pytest
 nbformat
 nbclient
 ipykernel
+Pillow

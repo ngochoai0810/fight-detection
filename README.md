@@ -405,3 +405,29 @@ Tóm tắt:
 
 **Nhóm thực hiện:** Hoài, Ngọc  
 **Repository:** https://github.com/ngochoai0810/fight-detection
+
+## Ch?y th? camera th?c
+
+Ch?y t?i th? m?c g?c d? ?n. Webcam m?c ??nh l? `--source 0`; camera USB kh?c c? th? l? `--source 1`.
+
+```powershell
+python src/inference.py --source 0 --model m1 --weights results/m1/best.pt --device cpu
+```
+
+Thay `--weights` b?ng checkpoint ?? hu?n luy?n th?c t?. Script h? tr? checkpoint ch?a `state_dict` + `config`, checkpoint ch?a `model`, ho?c state dict tr?c ti?p. T? ??c ng??ng t? `metrics.json` c?ng th? m?c checkpoint; d?ng `--metrics path/to/metrics.json` ho?c `--threshold 0.5` ?? ch? ??nh. N?u thi?u metrics, ng??ng m?c ??nh l? 0.5.
+
+M3 c?n th?m tr?ng s? YOLO ph?t hi?n ng??i:
+
+```powershell
+python src/inference.py --source 0 --model m3 --weights results/m3/best.pt --yolo-weights yolo11n.pt
+```
+
+Camera IP c? th? truy?n URL RTSP v?o `--source`. N?u webcam Windows kh?ng m? ???c, ??ng ?ng d?ng ?ang d?ng camera r?i th? `--camera-backend dshow` ho?c `--camera-backend msmf`. Nh?n **q** trong c?a s? video ?? tho?t. Th?m `--save output.mp4` ?? ghi video c? c?nh b?o.
+
+M3 ??i ?? 16 frame l?y m?u tr??c khi d? ?o?n. V?i `--stride 2`, c?a s? th?i gian c?a webcam c? th? ng?n h?n clip 5 gi?y d?ng khi hu?n luy?n; c?n th? l?i tr?n video th?c ?? ch?n stride v? ng??ng ph? h?p.
+
+C?c file `m1/dummy_best.pt`, `m3/dummy_best.pt` ch? n?n d?ng ki?m tra lu?ng khi ch?a x?c minh ngu?n v? ch?t l??ng tr?ng s?. K?t qu? benchmark trong CSV kh?ng ch?ng minh ch?t l??ng c?a c?c file n?y.
+
+### Thông tin và giọng nói cảnh báo
+
+Demo hiển thị trạng thái, điểm Fight, ngưỡng, FPS, thời gian và số đợt cảnh báo. Giọng nói bật mặc định trên Windows; dùng `--no-voice` để tắt hoặc `--voice-cooldown 15` để nhắc cách nhau ít nhất 15 giây. Nếu có giọng SAPI tiếng Việt, chương trình đọc tiếng Việt; nếu không, dùng tiếng Anh. Âm thanh phát qua loa, không được ghi vào MP4 bởi `--save`.
