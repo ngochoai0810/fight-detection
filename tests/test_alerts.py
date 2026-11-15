@@ -59,6 +59,23 @@ def test_overlay_counts_only_new_alerts_and_keeps_resolution():
     assert overlay.events == 2
 
 
+def test_overlay_renders_detection_border_lines():
+    overlay = alerts.AlertOverlay()
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    detections = {
+        "zone": [0.2, 0.25, 0.75, 0.85],
+        "zone_kind": "interaction",
+        "persons": [
+            {"box": [0.22, 0.28, 0.48, 0.82], "conf": 0.9, "involved": True},
+            {"box": [0.46, 0.30, 0.72, 0.83], "conf": 0.87, "involved": True},
+        ],
+    }
+    out = overlay.draw(frame.copy(), True, True, 0.91, 0.5, "m3", 25.0, detections=detections)
+    assert out.shape == frame.shape
+    # Top-left corner of the conflict zone (x=128, y=120) should have non-zero border pixels
+    assert out[120, 128].sum() > 0
+
+
 def test_voice_stops_on_normal_and_can_alert_again(monkeypatch):
     monkeypatch.setattr(alerts.os, "name", "nt")
     class Process:

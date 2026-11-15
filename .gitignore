@@ -1,18 +1,61 @@
-# Du lieu va trong so
-data/*
+# Local datasets and generated experiment results
+/data/*
 !data/.gitkeep
+/results/*
+!results/.gitkeep
+/runs/
+
+# Model weights and exports
 *.pt
 *.pth
+*.onnx
+*.torchscript
+
+# Local videos and dataset archives
 *.avi
 *.mp4
+*.mov
+*.mkv
+*.webm
+*.m4v
 *.zip
-results.zip
-runs/
 
-# Python
+# Python environments and caches
 __pycache__/
-*.pyc
+*.py[cod]
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .ipynb_checkpoints/
 .venv/
 venv/
+env/
+.coverage
+.coverage.*
+htmlcov/
+
+# Local logs, databases and temporary uploads
+*.log
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+*.upload
+*.tmp
+*.temp
+*.bak
+
+# Local settings and credentials
+.env
+.env.*
+!.env.example
+!.env.template
+.idea/
+.vscode/
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini

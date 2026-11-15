@@ -8,8 +8,6 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import pandas as pd
-from sklearn.model_selection import StratifiedGroupKFold
 
 LABELS = ("Fight", "NonFight")
 VIDEO_EXTS = {".avi", ".mp4", ".mov", ".mkv"}
@@ -31,6 +29,8 @@ def write_image(path, image):
 
 def scan_dataset(root):
     """Liet ke clip theo cau truc <root>/{train,val}/{Fight,NonFight}/*."""
+    import pandas as pd
+
     root = Path(root)
     rows = []
     for source_split in ("train", "val"):
@@ -58,6 +58,8 @@ def source_id(video):
 
 def make_splits(df, val_fraction=0.1, seed=42):
     """Giu 'val' goc lam test; tach val tu 'train' goc, phan tang va khong tach clip cung nguon."""
+    from sklearn.model_selection import StratifiedGroupKFold
+
     out = df.copy()
     out["split"] = "train"
     out.loc[out["source_split"] == "val", "split"] = "test"
@@ -135,6 +137,8 @@ def extract_frames(video_path, out_dir, num_frames=16, size=None):
 
 
 def main():
+    import pandas as pd
+
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, help="Thu muc RWF-2000")
     parser.add_argument("--splits", default="splits/splits.csv")

@@ -49,3 +49,50 @@ def test_camera_falls_back_after_first_frame_failure(monkeypatch):
     assert calls[0].released
     assert cap is calls[1]
     assert frame.shape == (2, 2, 3)
+
+
+def test_dashboard_pipeline_callback_stop_releases_camera_and_finalizes_session(tmp_path, monkeypatch):
+    import inference
+    import numpy as np
+    import threading
+    from monitoring import connect
+    from live_camera import LiveCamera
+
+    class Capture:
+        released = False
+        def get(self, prop):
+            return 10.
+        def read(self):
+            return True, np.zeros((96, 128, 3), dtype=np.uint8)
+        def release(self):
+            self.released = True
+
+    cap = Capture()
+    monkeypatch.setattr(inference, "open_capture", lambda *args: (cap, cap.read()[1]))
+    monkeypatch.setattr(inference, "load_model", lambda *args: lambda tensor: torch.tensor([-10.]))
+    seen = []
+
+    def runner(args, on_frame, stop_event):
+        args.device = "cpu"
+        args.stride = 1
+        args.no_boxes = True
+        def callback(frame, telemetry):
+            seen.append(telemetry)
+            on_frame(frame, telemetry)
+            if len(seen) == 2:
+                stop_event.set()
+        inference.run_inference(args, callback, stop_event)
+
+    camera = LiveCamera(tmp_path, runner=runner)
+    camera.project = tmp_path
+    weights = tmp_path / "results/m1/best.pt"
+    weights.parent.mkdir(parents=True)
+    weights.touch()
+    camera.start("m1")
+    camera.thread.join(timeout=10)
+    assert not camera.thread.is_alive()
+    assert len(seen) == 2 and seen[-1]["ready"]
+    assert cap.released
+    assert camera.snapshot()["status"] == "stopped"
+    with connect(tmp_path) as db:
+        assert db.execute("SELECT status FROM sessions").fetchone()[0] == "completed"

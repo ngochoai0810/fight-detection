@@ -1,0 +1,3 @@
+# Unit/integration tests, including training/data utilities.
+-r train.txt
+pytest

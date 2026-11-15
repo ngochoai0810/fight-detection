@@ -1,0 +1,5 @@
+# Build the self-contained Kaggle notebook or run notebooks locally.
+-r train.txt
+nbformat
+nbclient
+ipykernel

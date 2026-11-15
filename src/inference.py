@@ -29,6 +29,8 @@ import torchvision.transforms.functional as TF
 
 from models import FrameCNN, CNNLSTM
 from alerts import AlertOverlay, VoiceAlert, AlertConfirmation
+from monitoring import Monitor
+from crop_persons import BehaviorTracker, make_person_locator, union_box
 
 
 def parse_args():
@@ -36,12 +38,13 @@ def parse_args():
     parser.add_argument("--source", type=str, default="0", help="Webcam index (e.g. 0) hoac duong dan toi video file")
     parser.add_argument("--model", type=str, default="m1", choices=["m1", "m2", "m3"], help="Kien truc mo hinh")
     parser.add_argument("--weights", type=str, required=True, help="Duong dan toi file checkpoint (.pt)")
-    parser.add_argument("--yolo-weights", type=str, default="yolo11n.pt", help="Trọng so YOLO cho M3 crop hoac M2 cls")
+    parser.add_argument("--yolo-weights", type=str, default="yolo11n.pt", help="Trong so YOLO phat hien nguoi va khoanh vung")
     parser.add_argument("--image-size", type=int, default=224, help="Kich thuoc frame dua vao model")
     parser.add_argument("--threshold", type=float, default=None, help="Nguong xac suat de canh bao Fight (0.0 - 1.0)")
     parser.add_argument("--seq-len", type=int, default=16, help="So luong frame trong mot window (cho M3 hoac smooth M1)")
     parser.add_argument("--stride", type=int, default=2, help="Lay mau moi N frame de tiet kiem tai tinh toan")
     parser.add_argument("--save", type=str, default=None, help="Duong dan luu video ket qua (neu can)")
+    parser.add_argument("--output-dir", default="runs/live", help="Thu muc clip bang chung, log va hieu nang")
     parser.add_argument("--device", type=str, default=None, help="cuda hoac cpu (mac dinh tu chon)")
     parser.add_argument("--metrics", help="metrics.json chua threshold validation; mac dinh canh checkpoint")
     parser.add_argument("--camera-backend", choices=["auto", "dshow", "msmf"], default="auto")
@@ -51,9 +54,14 @@ def parse_args():
     parser.add_argument("--no-voice", action="store_true", help="Tat giong noi canh bao")
     parser.add_argument("--voice-cooldown", type=float, default=10, help="So giay nghi giua cac lan doc canh bao")
     parser.add_argument("--alert-hold", type=float, default=1.0, help="So giay diem phai lien tuc vuot nguong truoc khi canh bao; 0 de tat")
+    parser.add_argument("--pre-seconds", type=float, default=2.5, help="So giay luu dem truoc khi canh bao duoc xac nhan")
+    parser.add_argument("--no-boxes", action="store_true", help="Tat YOLO khoanh vung doi tuong bo sung cho M1/M2")
+    parser.add_argument("--headless", action="store_true", help="Chay khong mo cua so cv2.imshow (phu hop xu ly batch/server)")
     args = parser.parse_args()
     if not 0 <= args.alert_hold <= 60:
         parser.error("alert-hold phai trong [0, 60]")
+    if not 0 <= args.pre_seconds <= 15:
+        parser.error("pre-seconds phai trong [0, 15]")
     if not 1 <= args.voice_cooldown <= 3600:
         parser.error("voice-cooldown phai trong [1, 3600]")
     if args.camera_width < 1 or args.camera_height < 1:
@@ -115,26 +123,18 @@ def preprocess_frame(bgr_image, image_size):
     return tensor
 
 
-def crop_person_union(image, detector, margin=0.1):
-    """Phat hien nguoi bang YOLO va crop vung hop nhat chua cac nguoi cho M3."""
+def crop_from_boxes(image, boxes, margin=0.1):
+    """Crop vung hop nhat tu danh sach box nguoi da phat hien."""
     h, w = image.shape[:2]
-    boxes = detector(image)
-    if len(boxes) == 0:
-        return image
-    x1 = min(b[0] for b in boxes)
-    y1 = min(b[1] for b in boxes)
-    x2 = max(b[2] for b in boxes)
-    y2 = max(b[3] for b in boxes)
-    pad_x, pad_y = (x2 - x1) * margin, (y2 - y1) * margin
-    crop_box = (
-        max(0, round(x1 - pad_x)),
-        max(0, round(y1 - pad_y)),
-        min(w, round(x2 + pad_x)),
-        min(h, round(y2 + pad_y)),
-    )
-    if crop_box[2] <= crop_box[0] or crop_box[3] <= crop_box[1]:
+    crop_box = union_box(boxes, w, h, margin=margin)
+    if crop_box is None or crop_box[2] <= crop_box[0] or crop_box[3] <= crop_box[1]:
         return image
     return image[crop_box[1] : crop_box[3], crop_box[0] : crop_box[2]]
+
+
+def crop_person_union(image, detector, margin=0.1):
+    """Phat hien nguoi bang YOLO va crop vung hop nhat chua cac nguoi cho M3."""
+    return crop_from_boxes(image, detector(image), margin=margin)
 
 
 def open_capture(source, backend="auto", width=None, height=None, mjpg=False):
@@ -166,61 +166,66 @@ def open_capture(source, backend="auto", width=None, height=None, mjpg=False):
     )
 
 
-def main():
-    args = parse_args()
+def run_inference(args, on_frame=None, stop_event=None):
+    """Run the shared CLI/dashboard pipeline; release camera and evidence on stop."""
     args.threshold = resolve_threshold(args)
     print(f"[*] Threshold: {args.threshold:.6f}")
     device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
     print(f"[*] Dang chay tren thiet bi: {device}")
 
-    # Load model phan loai
     print(f"[*] Dang tai mo hinh {args.model.upper()} tu {args.weights}...")
     model = load_model(args, device)
 
-    # Neu dung M3, can them YOLO detector de crop nguoi
-    detector = None
-    if args.model == "m3":
-        print(f"[*] Dang tai YOLO detector nguoi tu {args.yolo_weights}...")
-        from crop_persons import make_yolo_detector
-        detector = make_yolo_detector(weights=args.yolo_weights, conf=0.25)
+    person_locator = None
+    need_yolo = args.model == "m3" or (not args.no_boxes and Path(args.yolo_weights).is_file())
+    if need_yolo:
+        print(f"[*] Dang tai YOLO khoanh vung doi tuong tu {args.yolo_weights}...")
+        person_locator = make_person_locator(weights=args.yolo_weights, conf=0.25, device=device)
 
+    if stop_event is not None and stop_event.is_set():
+        return
+
+    tracker = BehaviorTracker()
     overlay = AlertOverlay()
     confirmation = AlertConfirmation(args.alert_hold)
     is_fight = False
     voice = VoiceAlert(enabled=not args.no_voice, cooldown=args.voice_cooldown)
 
-    # Mo video / webcam source
     source = int(args.source) if args.source.isdigit() else args.source
     cap, first_frame = open_capture(source, args.camera_backend, args.camera_width, args.camera_height, args.camera_mjpg)
+    source_fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
 
-    # Thiet lap video writer neu luu file
     writer = None
     if args.save:
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+        from monitoring import open_evidence_writer
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        writer = cv2.VideoWriter(args.save, fourcc, fps, (width, height))
+        writer, save_size, _ = open_evidence_writer(args.save, source_fps, (width, height))
         print(f"[*] Se luu video ket qua vao: {args.save}")
 
-    # Buffer luu tru frame
     frame_queue = collections.deque(maxlen=args.seq_len)
     prob_history = collections.deque(maxlen=10)
 
     frame_idx = 0
     fight_prob = 0.0
     fps_display = 0.0
+    detections = {"zone": None, "zone_kind": None, "persons": []}
     prev_time = time.time()
 
     print("[*] Bat dau nhan dien. Nhan 'q' tren cua so hien thi de dung.")
 
+    monitor = None
     try:
-        while True:
+        session_cfg = dict(vars(args), source_fps=round(float(source_fps), 2))
+        monitor = Monitor(args.output_dir, session_cfg, pre_seconds=args.pre_seconds)
+        while stop_event is None or not stop_event.is_set():
+            frame_started = time.perf_counter()
+            inference_ms = None
             if first_frame is not None:
-                ret, frame = True, first_frame
+                ret, raw_frame = True, first_frame
                 first_frame = None
             else:
-                ret, frame = cap.read()
+                ret, raw_frame = cap.read()
             if not ret:
                 if isinstance(source, int):
                     raise RuntimeError("Camera bi ngat khi doc frame. Thu backend khac hoac kiem tra ket noi USB.")
@@ -231,11 +236,13 @@ def main():
             fps_display = 1.0 / max(curr_time - prev_time, 1e-5)
             prev_time = curr_time
 
-            # Suy luan theo tung loai mo hinh
             if frame_idx % args.stride == 0:
+                inference_started = time.perf_counter()
+                person_boxes = person_locator(raw_frame) if person_locator is not None else []
+                detections = tracker.update(raw_frame, person_boxes=person_boxes, recompute=True)
+
                 if args.model == "m1":
-                    # ResNet18: du doan tung frame
-                    tensor = preprocess_frame(frame, args.image_size).unsqueeze(0).to(device)
+                    tensor = preprocess_frame(raw_frame, args.image_size).unsqueeze(0).to(device)
                     with torch.no_grad():
                         logit = model(tensor)
                         fight_prob = torch.sigmoid(logit).item()
@@ -243,9 +250,7 @@ def main():
                     smoothed_prob = sum(prob_history) / len(prob_history)
 
                 elif args.model == "m2":
-                    # YOLO11-cls
-                    results = model.predict(frame, imgsz=args.image_size, device=str(device), verbose=False)[0]
-                    # Gia su class Fight la index 1 hoac lay tu names
+                    results = model.predict(raw_frame, imgsz=args.image_size, device=str(device), verbose=False)[0]
                     names = results.names
                     fight_idx = 1
                     for idx, name in names.items():
@@ -258,47 +263,88 @@ def main():
                     smoothed_prob = sum(prob_history) / len(prob_history)
 
                 elif args.model == "m3":
-                    # M3: Crop nguoi -> dua vao queue -> du doan qua CNN+LSTM
-                    cropped = crop_person_union(frame, detector)
+                    cropped = crop_from_boxes(raw_frame, person_boxes)
                     tensor = preprocess_frame(cropped, args.image_size)
                     frame_queue.append(tensor)
 
                     if len(frame_queue) == args.seq_len:
-                        clip_tensor = torch.stack(list(frame_queue)).unsqueeze(0).to(device)  # (1, T, C, H, W)
+                        clip_tensor = torch.stack(list(frame_queue)).unsqueeze(0).to(device)
                         with torch.no_grad():
                             logit = model(clip_tensor)
                             fight_prob = torch.sigmoid(logit).item()
                         prob_history.append(fight_prob)
                     smoothed_prob = sum(prob_history) / len(prob_history) if prob_history else fight_prob
+
+                if args.model != "m3" or len(frame_queue) == args.seq_len:
+                    inference_ms = (time.perf_counter() - inference_started) * 1000
             else:
+                detections = tracker.update(raw_frame, recompute=False, cached=detections)
                 smoothed_prob = sum(prob_history) / len(prob_history) if prob_history else fight_prob
 
-            # Ve overlay canh bao len man hinh
             ready = bool(prob_history)
             above_threshold = ready and smoothed_prob >= args.threshold
             if frame_idx % args.stride == 0:
-                is_fight = confirmation.update(above_threshold)
+                # File processing can run faster/slower than playback; confirm on video time.
+                is_fight = confirmation.update(
+                    above_threshold, now=frame_idx / source_fps if isinstance(source, str) else None
+                )
+            pending = above_threshold and not is_fight
             voice.update(is_fight)
-            frame = overlay.draw(frame, is_fight, ready, smoothed_prob,
-                                 args.threshold, args.model, fps_display,
-                                 pending=above_threshold and not is_fight)
 
-            if writer:
-                writer.write(frame)
+            display_frame = overlay.draw(
+                raw_frame.copy(),
+                is_fight,
+                ready,
+                smoothed_prob,
+                args.threshold,
+                args.model,
+                fps_display,
+                pending=pending,
+                detections=detections,
+            )
 
-            cv2.imshow("Fight Detection", frame)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
+            if writer is not None:
+                writer.write(display_frame[: save_size[1], : save_size[0]])
+
+            key = 0
+            if not args.headless:
+                cv2.imshow("Fight Detection", display_frame)
+                key = cv2.waitKey(1) & 0xFF
+
+            processing_ms = (time.perf_counter() - frame_started) * 1000
+            monitor.record(
+                raw_frame,
+                is_fight,
+                smoothed_prob,
+                inference_ms,
+                processing_ms,
+                detections=detections,
+                pending=pending,
+            )
+            if on_frame is not None:
+                on_frame(display_frame, {
+                    "score": smoothed_prob, "threshold": args.threshold,
+                    "active": is_fight, "pending": pending, "ready": ready,
+                    "fps": fps_display, "model": args.model,
+                })
+            if key == ord("q"):
                 break
 
     finally:
         voice.close()
         cap.release()
-        if writer:
+        if writer is not None:
             writer.release()
-        cv2.destroyAllWindows()
+        if not args.headless:
+            cv2.destroyAllWindows()
+        if monitor is not None:
+            monitor.close()
     print("[*] Da ket thuc chuong trinh.")
+
+
+def main():
+    run_inference(parse_args())
 
 
 if __name__ == "__main__":
     main()
-

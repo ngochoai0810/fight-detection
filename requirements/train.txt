@@ -1,0 +1,5 @@
+# Training, dataset preparation, EDA and evaluation; keep Kaggle's GPU PyTorch.
+-r ../requirements.txt
+pandas
+scikit-learn
+matplotlib

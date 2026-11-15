@@ -1,433 +1,145 @@
-# 🎯 Phát hiện Hành vi Đánh nhau qua Video Giám sát
+# Phát hiện đánh nhau qua video giám sát
 
-**Đề tài 19:** Phát hiện hành vi bất thường/khả nghi trong video giám sát an ninh  
-**Nhóm thực hiện:** Hoài, Ngọc  
-**Ngôn ngữ:** Python, PyTorch
+Dự án Python/PyTorch phân loại **Fight / NonFight**, hỗ trợ phân tích video và camera trực tiếp trên dashboard.
 
-## 📋 Mô tả dự án
+| Model | Phương pháp |
+| --- | --- |
+| M1 | ResNet18 phân loại từng frame |
+| M2 | YOLO11 classification |
+| M3 | YOLO crop vùng người → ResNet18 → LSTM |
 
-Hệ thống phân loại tự động các clip video có chứa hành vi **đánh nhau** hoặc **không đánh nhau** sử dụng kỹ thuật deep learning. Dự án huấn luyện và so sánh ba mô hình với độ phức tạp tăng dần, từ CNN baseline đến YOLO11 kết hợp LSTM để học thông tin thời gian.
+## Cài đặt
 
-**Phạm vi:** Chỉ phát hiện đánh nhau. Té ngã, xâm nhập vùng cấm nằm ngoài phạm vi dự án.
+Chạy lệnh tại thư mục gốc dự án. Môi trường đã kiểm thử: Python 3.11.
 
-### 🏆 Kết quả chính
-
-| Mô hình | Độ chính xác | Recall | Precision | ROC-AUC | FPS |
-|---------|-------------|--------|-----------|---------|-----|
-| M1: CNN Baseline | 68.0% | **99%** | 61.1% | 0.843 | **378** |
-| M2: YOLO11-cls | 72.25% | 98% | 64.7% | 0.832 | 87.5 |
-| **M3: YOLO11+LSTM** | **73.25%** | 92.5% | **66.79%** | **0.866** ⭐ | 92.1 |
-
-**Mô hình tốt nhất:** M3 với ROC-AUC **0.866**, đạt hiệu suất cao nhất trong phân biệt giữa hai lớp.
-
----
-
-## 📊 Bộ dữ liệu (RWF-2000)
-
-### Nguồn
-[RWF-2000: Real World Fighting Video Database](https://github.com/mchengny/RWF2000-Video-Database-for-Violence-Detection) - ICPR 2020
-
-**Tham khảo:** Cheng, M., Cai, Z., Li, B. (2020). "RWF-2000: An Open Large Scale Video Database for Violence Detection". In *International Conference on Pattern Recognition (ICPR)*.
-
-### Thống kê dữ liệu
-
-```
-Tổng cộng: 2,000 clip video
-├── Train:      1,392 clip (70%)
-│   ├── Fight:     695
-│   └── NonFight:  697
-├── Validation:   208 clip (10%)
-│   ├── Fight:     105
-│   └── NonFight:  103
-└── Test:         400 clip (20%)
-    ├── Fight:     200
-    └── NonFight:  200
+```powershell
+cd D:\fight-detection
+python -m pip install -r requirements.txt
 ```
 
-### Đặc điểm
-- **Độ dài:** 5 giây/clip (150 frame ở 30 FPS)
-- **Độ phân giải:** 640×360 đến 1280×720
-- **Tỷ lệ lớp:** Cân bằng 1:1
-- **Chia tập:** Theo video (không chia frame để tránh rò rỉ dữ liệu)
+`requirements.txt` dùng cho dashboard và nhận diện. Các nhóm bổ sung:
 
----
+| Mục đích | File cài đặt |
+| --- | --- |
+| Huấn luyện, EDA, đánh giá | `requirements/train.txt` |
+| Kiểm thử | `requirements/test.txt` |
+| Tạo/chạy notebook | `requirements/notebooks.txt` |
 
-## 🧠 Các mô hình
+Phiên bản thư viện local đã kiểm thử được ghi trong `requirements/constraints-local.txt`.
+Để cài theo các phiên bản này, thêm `-c requirements/constraints-local.txt` vào lệnh pip.
+Đây là danh sách phiên bản dependency trực tiếp, không phải bản khóa toàn bộ môi trường.
 
-### M1: CNN Baseline (ResNet18)
+Chuẩn bị checkpoint đã huấn luyện cho model muốn sử dụng:
 
-**Kiến trúc:**
-```
-16 frames/clip → Resize 224×224 → ResNet18 (pretrained) → MLP head → Fight/NonFight
-```
-
-**Đặc điểm:**
-- Backbone pretrained trên ImageNet
-- Xử lý từng frame độc lập
-- Dự đoán cuối: trung bình xác suất các frame
-
-**Kết quả:**
-- Accuracy: 68.0%
-- Recall: **99%** (bắt được gần tất cả fight)
-- Precision: 61.1%
-- **FPS: 378** (nhanh nhất) ⚡
-- Model size: 44.8 MB
-
-**Ưu điểm:** Nhanh, đơn giản  
-**Nhược điểm:** Precision thấp (nhiều cảnh báo sai), không học thông tin thời gian
-
----
-
-### M2: YOLO11-cls (Phân loại)
-
-**Kiến trúc:**
-```
-16 frames/clip → YOLO11-cls head → Fight/NonFight (từng frame)
-                                ↓
-                          Aggregate theo clip
+```text
+results/
+├── m1/best.pt
+├── m2/best.pt
+└── m3/best.pt
+yolo11n.pt          # Bắt buộc cho M3; dùng khoanh vùng người cho M1/M2 nếu có
 ```
 
-**Đặc điểm:**
-- YOLOv11 nano trong chế độ classification
-- Xử lý frame độc lập
-- Model nhỏ gọn (3.2 MB)
+Đặt `metrics.json` tương ứng cùng thư mục checkpoint để tự đọc ngưỡng Fight. Nếu thiếu, ngưỡng mặc định là `0.5`. Dữ liệu, trọng số và kết quả trong `results/`, `runs/` được bỏ qua bởi Git; cần chuẩn bị riêng trên máy.
 
-**Kết quả:**
-- Accuracy: 72.25%
-- Recall: 98% (gần tuyệt đối)
-- Precision: 64.7%
-- FPS: 87.5
-- Model size: **3.2 MB** (nhỏ nhất)
+## Chạy dashboard
 
-**Ưu điểm:** Model rất nhẹ, dễ deploy  
-**Nhược điểm:** Không học thời gian
-
----
-
-### M3: YOLO11 + CNN+LSTM ⭐ (Mô hình cải tiến)
-
-**Kiến trúc:**
-```
-Video clip
-    ↓
-[YOLO11 Detection] → Crop vùng người (16 frames)
-    ↓
-[ResNet18 CNN] → Extract features (16 × 512)
-    ↓
-[2-layer LSTM] → Học thông tin thời gian (256 units)
-    ↓
-[FC layer] → Fight/NonFight
+```powershell
+python src/dashboard.py
 ```
 
-**Kỹ thuật cải tiến:**
-- **Crop người:** Sử dụng YOLO11 phát hiện người, crop vùng có người → loại bỏ nền
-- **Temporal learning:** LSTM học sự thay đổi theo thời gian (chuyển động)
-- **Freeze backbone:** Giữ trọng số ResNet pretrained, chỉ train LSTM
+Mở **http://127.0.0.1:8501**. Dashboard tự chạy model, không cần mở terminal thứ hai.
 
-**Kết quả:**
-- Accuracy: **73.25%** ✓
-- Recall: 92.5% (185/200 clip)
-- Precision: **66.79%** ✓
-- **ROC-AUC: 0.866** ⭐ (tốt nhất)
-- FPS: 92.1 (đủ thời gian thực)
-- Model size: 47.9 MB
+- **Video:** chọn file tối đa 1 GB, chọn model rồi bấm **Phân tích video**. Khi hoàn tất, xem video kết quả và các clip cảnh báo.
+- **Camera:** tại **Camera trực tiếp**, chọn camera `0` hoặc `1` nếu dùng USB, chọn model rồi bấm **Bật camera**. Hình trực tiếp hiển thị khung nhận diện, điểm Fight và FPS. Bấm **Tắt camera** để kết thúc phiên.
+- **Bằng chứng:** xem clip cảnh báo, duyệt đúng/báo nhầm, thêm ghi chú, xác thực SHA-256 và xuất CSV/JSON.
 
-**Ưu điểm:** 
-- ROC-AUC cao nhất (phân biệt tốt)
-- Học được chuyển động
-- Cân bằng precision/recall
+Mỗi lần chạy camera hoặc phân tích một file video. Camera là thiết bị gắn với máy chạy dashboard và tiếp tục chạy khi tải lại/đóng tab; bấm **Tắt camera** hoặc dừng dashboard bằng `Ctrl+C` để kết thúc.
 
-**Nhược điểm:**
-- Model lớn hơn (47.9 MB)
-- Bỏ sót 15 clip (bạn chuyển động chậm, nhân vật nhỏ)
+M1 phù hợp để thử trên CPU. M3 cần đủ 16 frame lấy mẫu trước khi dự đoán. Tốc độ thực tế phụ thuộc cấu hình máy.
 
----
+Đổi cổng hoặc thư mục lưu:
 
-## 📈 Đánh giá
-
-### Chỉ số
-- **Accuracy:** Tỷ lệ dự đoán đúng
-- **Precision:** Trong những clip dự đoán là Fight, bao nhiêu % đúng
-- **Recall:** Trong tất cả clip Fight, bắt được bao nhiêu %
-- **F1-Score:** Cân bằng Precision và Recall
-- **ROC-AUC:** Diện tích dưới đường cong ROC (0-1, cao hơn tốt hơn)
-
-### Đặc điểm đánh giá
-- **Cấp độ:** Clip-level (không phải frame-level)
-- **Tập test:** 400 clip (200 Fight + 200 NonFight)
-- **Threshold:** Chọn trên validation bằng F2-score (ưu tiên Recall)
-- **Early stopping:** 
-  - M1, M3: Dừng theo F1 cấp clip
-  - M2: Dừng theo top-1 cấp frame (Ultralytics)
-
-### Phân tích lỗi M3 (mô hình tốt nhất)
-- **15 False Negative:** Bỏ sót Fight
-  - Clip có nhân vật nhỏ
-  - Chuyển động chậm/tinh tế
-  
-- **92 False Positive:** Cảnh báo sai
-  - NonFight với chuyển động nhanh (ví dụ: thể dục)
-  - Nền phức tạp
-
----
-
-## 📁 Cấu trúc thư mục
-
-```
-fight-detection/
-├── src/                      # Mã nguồn chính
-│   ├── prepare_data.py       # Chuẩn bị & chia dữ liệu
-│   ├── eda.py                # Phân tích dữ liệu (EDA)
-│   ├── train_cnn.py          # Huấn luyện M1 (CNN baseline)
-│   ├── train_yolo_cls.py     # Huấn luyện M2 (YOLO11-cls)
-│   ├── train_cnn_lstm.py     # Huấn luyện M3 (YOLO11+LSTM)
-│   ├── crop_persons.py       # Crop vùng người (M3 preprocessing)
-│   ├── evaluate.py           # Đánh giá mô hình
-│   ├── metrics.py            # Tính toán chỉ số
-│   ├── models.py             # Định nghĩa kiến trúc
-│   ├── fight_data.py         # DataLoader, augmentation
-│   └── train_utils.py        # Utilities
-├── tests/                    # Unit tests
-│   ├── test_prepare_data.py
-│   ├── test_metrics.py
-│   ├── test_eda.py
-│   ├── test_crop_persons.py
-│   ├── test_torch_parts.py
-│   ├── test_smoke_pipeline.py # Smoke test (end-to-end)
-│   └── conftest.py           # Pytest config
-├── notebooks/                # Jupyter notebooks
-│   ├── eda.ipynb             # EDA interactif
-│   └── kaggle_train.ipynb    # Notebook chạy trên Kaggle
-├── configs/                  # Cấu hình
-├── data/                     # Dữ liệu (không commit)
-├── splits/                   # Danh sách clip train/val/test (CSV)
-├── eda/                      # Output EDA (biểu đồ, thống kê)
-├── m1/, m2/, m3/             # Output huấn luyện (checkpoint, metrics)
-│
-├── RESULTS.md                # Báo cáo kết quả chi tiết
-├── README.md                 # File này
-├── requirements.txt          # Dependencies
-└── pytest.ini                # Pytest config
+```powershell
+python src/dashboard.py --port 8502 --output-dir runs/demo
 ```
 
----
+Mặc định `runs/live/` lưu video kết quả, clip bằng chứng, ảnh thumbnail, `history.sqlite` và nhật ký. Các file này không tự xóa.
 
-## ⚙️ Yêu cầu & Cài đặt
-
-### Yêu cầu
-- Python 3.8+
-- GPU (khuyến nghị: CUDA 11.8+)
-- Dung lượng: ~50 GB (RWF-2000 + frames + models)
-
-### Cài đặt
-
-```bash
-# Clone repository
-git clone https://github.com/ngochoai0810/fight-detection.git
-cd fight-detection
-
-# Cài đặt dependencies
-pip install -r requirements.txt
-```
-
-**Lưu ý:** Nên sử dụng **GPU** (Kaggle hoặc Colab) để huấn luyện. CPU chỉ phù hợp cho debugging.
-
----
-
-## 🚀 Hướng dẫn chạy
-
-### 1️⃣ Chuẩn bị dữ liệu
-
-**Tùy chọn A: Kaggle (Khuyến nghị)**
-```bash
-# Chạy notebook Kaggle: notebooks/kaggle_train.ipynb
-# Hoặc tải dữ liệu từ: https://www.kaggle.com/datasets/vulamnguyen/rwf2000
-```
-
-**Tùy chọn B: Local**
-```bash
-# Tải RWF-2000 (cần xin phép hoặc dùng Kaggle mirror)
-# Giải nén theo cấu trúc:
-# RWF-2000/
-# ├── train/
-# │   ├── Fight/      *.avi
-# │   └── NonFight/   *.avi
-# └── val/
-#     ├── Fight/      *.avi
-#     └── NonFight/   *.avi
-
-python src/prepare_data.py --root D:/RWF-2000 --frames data/frames
-```
-
-**Output:**
-- `splits/splits.csv` — Danh sách clip với split (train/val/test)
-- `data/frames/` — Frames được trích xuất
-
-### 2️⃣ Phân tích dữ liệu (EDA)
-
-```bash
-python src/eda.py --root D:/RWF-2000 --yolo-weights yolo11n.pt --out results/eda
-```
-
-**Output:**
-- `eda/summary.csv` — Thống kê chung
-- `eda/by_label.csv` — Thống kê theo lớp
-- `eda/samples.png` — Grid mẫu clip
-- `eda/motion.png` — Biểu đồ optical flow (tính chuyển động)
-
-Xem chi tiết: `notebooks/eda.ipynb`
-
-### 3️⃣ Huấn luyện mô hình
-
-#### M1: CNN Baseline
-```bash
-python src/train_cnn.py \
-  --frames data/frames \
-  --epochs 30 \
-  --image-size 224 \
-  --batch-size 32
-```
-
-#### M2: YOLO11-cls
-```bash
-python src/train_yolo_cls.py \
-  --frames data/frames \
-  --epochs 30 \
-  --image-size 224 \
-  --batch-size 64
-```
-
-#### M3: YOLO11 + LSTM
-```bash
-# Bước 1: Crop vùng người
-python src/crop_persons.py \
-  --frames data/frames \
-  --out data/crops \
-  --size 224
-
-# Bước 2: Huấn luyện
-python src/train_cnn_lstm.py \
-  --frames data/crops \
-  --epochs 30 \
-  --image-size 224 \
-  --hidden-size 128 \
-  --freeze-backbone
-```
-
-**Output mỗi mô hình:** `results/m1/`, `results/m2/`, `results/m3/`
-- `best.pt` — Checkpoint tốt nhất
-- `history.csv` — Loss/metrics theo epoch
-- `metrics.json` — Metrics cuối cùng
-
-### 4️⃣ Đánh giá trên Test Set
-
-⚠️ **Chỉ chạy sau khi chốt xong mô hình** (dùng tập test)
-
-```bash
-python src/evaluate.py --model m1 --image-size 224
-python src/evaluate.py --model m2 --image-size 224
-python src/evaluate.py --model m3 --frames data/crops --yolo-weights yolo11n.pt --image-size 224
-```
-
-**Output:**
-- `results/m{1,2,3}/metrics.json` — Chỉ số (accuracy, precision, recall, etc.)
-- `results/m{1,2,3}/preds_test.csv` — Dự đoán từng clip
-- `results/m{1,2,3}/errors.csv` — Phân tích lỗi (FP, FN)
-- `results/m{1,2,3}/confusion_matrix.png` — Confusion matrix
-- `results/m{1,2,3}/roc.png` — ROC curve
-- `results/comparison.csv` — **Bảng so sánh 3 mô hình** ⭐
-
-### 5️⃣ Kiểm thử (Testing)
-
-```bash
-# Chạy tất cả test
-python -m pytest
-
-# Chạy test nhanh (loại bỏ smoke test)
-python -m pytest -m "not smoke"
-
-# Chạy smoke test (end-to-end trên dữ liệu tổng hợp)
-python -m pytest -m smoke
-```
-
-**Lưu ý:** Smoke test chứng minh quy trình chạy được, không đo độ chính xác.
-
----
-
-## 📊 Kết quả chi tiết
-
-Xem đầy đủ tại **[RESULTS.md](RESULTS.md)**
-
-Tóm tắt:
-
-| Mô hình | Accuracy | Recall | Precision | ROC-AUC | FPS | Model |
-|---------|----------|--------|-----------|---------|-----|-------|
-| **M1** | 68.0% | 99% | 61.1% | 0.843 | 378 | 44.8 MB |
-| **M2** | 72.25% | 98% | 64.7% | 0.832 | 87.5 | 3.2 MB |
-| **M3** ⭐ | 73.25% | 92.5% | 66.79% | 0.866 | 92.1 | 47.9 MB |
-
----
-
-## 🔍 Quy ước & Lưu ý
-
-1. **Chia dữ liệu:** Theo video, không theo frame (tránh rò rỉ)
-2. **Threshold:** Chọn trên validation bằng F2-score (ưu tiên Recall)
-3. **Early stopping:**
-   - M1, M3: Dừng theo F1 cấp clip
-   - M2: Dừng theo top-1 cấp frame (Ultralytics)
-4. **Clip cùng nguồn:** Không tách giữa train và val
-
----
-
-## 📚 Tài liệu tham khảo
-
-1. **RWF-2000 Dataset**
-   - Cheng, M., Cai, Z., Li, B. (2020). "RWF-2000: An Open Large Scale Video Database for Violence Detection". *ICPR 2020*
-   - GitHub: https://github.com/mchengny/RWF2000-Video-Database-for-Violence-Detection
-
-2. **YOLOv11**
-   - Ultralytics. "YOLOv11: A New Generation of State-of-the-Art Real-Time Detectors"
-   - Docs: https://docs.ultralytics.com/
-
-3. **Two-Stream CNN**
-   - Wang, L., et al. (2016). "Two-Stream Convolutional Networks for Action Recognition in Videos". *CVPR 2016*
-
----
-
-## 📝 License & Attribution
-
-**Dữ liệu RWF-2000:** Yêu cầu xin phép từ SMIIP Lab trước khi sử dụng/phân phối  
-**Mã nguồn:** MIT License (xem [LICENSE](LICENSE) nếu có)
-
----
-
-## 👥 Thông tin liên hệ
-
-**Nhóm thực hiện:** Hoài, Ngọc  
-**Repository:** https://github.com/ngochoai0810/fight-detection
-
-## Ch?y th? camera th?c
-
-Ch?y t?i th? m?c g?c d? ?n. Webcam m?c ??nh l? `--source 0`; camera USB kh?c c? th? l? `--source 1`.
+## Chạy nhận diện bằng terminal (tùy chọn)
 
 ```powershell
 python src/inference.py --source 0 --model m1 --weights results/m1/best.pt --device cpu
 ```
 
-Thay `--weights` b?ng checkpoint ?? hu?n luy?n th?c t?. Script h? tr? checkpoint ch?a `state_dict` + `config`, checkpoint ch?a `model`, ho?c state dict tr?c ti?p. T? ??c ng??ng t? `metrics.json` c?ng th? m?c checkpoint; d?ng `--metrics path/to/metrics.json` ho?c `--threshold 0.5` ?? ch? ??nh. N?u thi?u metrics, ng??ng m?c ??nh l? 0.5.
+Thay `--source 0` bằng chỉ số camera khác hoặc đường dẫn video. Dùng `--threshold 0.5` để đặt ngưỡng, `--no-voice` để tắt giọng nói, `--save output.mp4` để ghi video có kết quả. Nhấn `q` trong cửa sổ video để thoát. Xem toàn bộ tùy chọn bằng `python src/inference.py --help`.
 
-M3 c?n th?m tr?ng s? YOLO ph?t hi?n ng??i:
+## Huấn luyện và đánh giá
+
+Huấn luyện và đánh giá trên **Kaggle GPU** bằng `notebooks/kaggle_train.ipynb`;
+local chỉ cần checkpoint để chạy dashboard. Notebook dùng nhóm dependency huấn luyện,
+không ép phiên bản PyTorch/CUDA của local lên Kaggle, và lưu phiên bản thực tế vào
+`results/environment.json` cùng kết quả. Khi hoàn tất, tải `results.zip` và giải nén vào `results/`.
+
+Nếu sửa mã huấn luyện hoặc dependency, cài `requirements/notebooks.txt` rồi sinh lại notebook:
 
 ```powershell
-python src/inference.py --source 0 --model m3 --weights results/m3/best.pt --yolo-weights yolo11n.pt
+python tools/build_kaggle_notebook.py
 ```
 
-Camera IP c? th? truy?n URL RTSP v?o `--source`. N?u webcam Windows kh?ng m? ???c, ??ng ?ng d?ng ?ang d?ng camera r?i th? `--camera-backend dshow` ho?c `--camera-backend msmf`. Nh?n **q** trong c?a s? video ?? tho?t. Th?m `--save output.mp4` ?? ghi video c? c?nh b?o.
+Các lệnh bên dưới mô tả quy trình mà notebook thực hiện; không cần chạy lại trên máy local.
 
-M3 ??i ?? 16 frame l?y m?u tr??c khi d? ?o?n. V?i `--stride 2`, c?a s? th?i gian c?a webcam c? th? ng?n h?n clip 5 gi?y d?ng khi hu?n luy?n; c?n th? l?i tr?n video th?c ?? ch?n stride v? ng??ng ph? h?p.
+Chuẩn bị [RWF-2000](https://github.com/mchengny/RWF2000-Video-Database-for-Violence-Detection) theo cấu trúc:
 
-C?c file `m1/dummy_best.pt`, `m3/dummy_best.pt` ch? n?n d?ng ki?m tra lu?ng khi ch?a x?c minh ngu?n v? ch?t l??ng tr?ng s?. K?t qu? benchmark trong CSV kh?ng ch?ng minh ch?t l??ng c?a c?c file n?y.
+```text
+RWF-2000/
+├── train/
+│   ├── Fight/
+│   └── NonFight/
+└── val/
+    ├── Fight/
+    └── NonFight/
+```
 
-### Thông tin và giọng nói cảnh báo
+Chuẩn bị dữ liệu và huấn luyện từng model:
 
-Demo hiển thị trạng thái, điểm Fight, ngưỡng, FPS, thời gian và số đợt cảnh báo. Giọng nói bật mặc định trên Windows; dùng `--no-voice` để tắt hoặc `--voice-cooldown 15` để nhắc cách nhau ít nhất 15 giây. Nếu có giọng SAPI tiếng Việt, chương trình đọc tiếng Việt; nếu không, dùng tiếng Anh. Âm thanh phát qua loa, không được ghi vào MP4 bởi `--save`.
+```powershell
+python src/prepare_data.py --root D:/RWF-2000 --frames data/frames
+python src/train_cnn.py
+python src/train_yolo_cls.py
+python src/crop_persons.py --weights yolo11n.pt
+python src/train_cnn_lstm.py
+```
+
+Chỉ huấn luyện model cần sử dụng; M3 cần chạy crop trước. GPU được khuyến nghị cho huấn luyện. Dữ liệu được chia theo video; thư mục `val` gốc của RWF-2000 được giữ làm tập test.
+
+Đánh giá sau khi chốt model; ngưỡng được chọn trên validation theo F2, các chỉ số được tính ở cấp clip trên test:
+
+```powershell
+python src/evaluate.py --model m1
+python src/evaluate.py --model m2
+python src/evaluate.py --model m3 --yolo-weights yolo11n.pt
+```
+
+Checkpoint và báo cáo nằm trong `results/m1/`, `results/m2/`, `results/m3/`; bảng so sánh được ghi vào `results/comparison.csv`.
+
+## Kiểm thử
+
+```powershell
+python -m pip install -r requirements/test.txt
+python -m pytest
+```
+
+Mặc định bỏ qua smoke test. Chạy toàn bộ luồng trên dữ liệu tổng hợp bằng `python -m pytest -m smoke`; lần đầu có thể cần tải trọng số YOLO. Smoke test kiểm tra luồng chạy, không đo độ chính xác trên dữ liệu thực.
+
+## Xử lý lỗi thường gặp
+
+- **Không mở được camera:** đóng ứng dụng khác đang dùng camera, kiểm tra quyền Camera của Windows và thử chỉ số camera khác. Với CLI, có thể thử `--camera-backend dshow` hoặc `msmf`.
+- **Thiếu checkpoint:** kiểm tra đường dẫn `results/<model>/best.pt`; M3 cần thêm `yolo11n.pt` tại thư mục gốc.
+- **Không thấy giao diện mới:** khởi động lại dashboard và nhấn `Ctrl+F5` trên trình duyệt.
+
+## Cấu trúc mã dashboard
+
+- `src/dashboard.py`: HTTP API, dữ liệu và điều khiển tác vụ.
+- `src/templates/dashboard.html`: bố cục giao diện.
+- `src/assets/dashboard.css`: kiểu dáng; `detection.js`, `camera.js`, `evidence.js`: các luồng giao diện.
+- `src/live_camera.py`, `src/inference.py`, `src/monitoring.py`: camera, nhận diện và lưu bằng chứng.
