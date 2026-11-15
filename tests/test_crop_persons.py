@@ -1,7 +1,7 @@
 import cv2
 import numpy as np
 
-from crop_persons import crop_frames_dir, union_box
+from crop_persons import BehaviorTracker, crop_frames_dir, localize_behavior, union_box
 
 
 def test_union_box_covers_all_people_with_margin():
@@ -49,3 +49,29 @@ def test_crop_skips_frames_already_cached(tmp_path):
     crop_frames_dir(tmp_path / "in", tmp_path / "out", detector=detector, size=64)
     crop_frames_dir(tmp_path / "in", tmp_path / "out", detector=detector, size=64)
     assert len(calls) == 1
+
+
+def test_localize_behavior_isolates_interacting_pair_from_distant_bystander():
+    # Two people close together on left (x=40..170), one distant bystander far right (x=540..600)
+    boxes = [
+        (40, 80, 100, 260, 0.92),
+        (105, 85, 170, 265, 0.89),
+        (540, 90, 600, 260, 0.95),
+    ]
+    det = localize_behavior(boxes, width=640, height=360)
+    assert det["zone_kind"] == "interaction"
+    assert det["zone"] is not None
+    # Zone should wrap the fighting pair on the left, NOT stretch to x=600
+    assert det["zone"][2] < 0.45
+    assert [p["involved"] for p in det["persons"]] == [True, True, False]
+
+
+def test_behavior_tracker_falls_back_to_motion_roi():
+    tracker = BehaviorTracker()
+    f0 = np.zeros((180, 240, 3), dtype=np.uint8)
+    f1 = np.zeros((180, 240, 3), dtype=np.uint8)
+    f1[40:120, 60:150] = 220
+    tracker.update(f0, person_boxes=[], recompute=True)
+    det = tracker.update(f1, person_boxes=[], recompute=True)
+    assert det["zone_kind"] == "motion"
+    assert det["zone"] is not None

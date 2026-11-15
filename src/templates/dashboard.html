@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sentinel · AI</title>
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<link rel="stylesheet" href="/assets/dashboard.css">
+</head>
+<body>
+<div class="sr-summary" id="ssrSummary">__SSR_SUMMARY__</div>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-shield" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="M16 3 27 7v8c0 7-6 11-11 14C11 26 5 22 5 15V7l11-4Z" fill="white" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="m11 15 4 4 7-8" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+    <div>
+      <h1>Sentinel<span style="color:var(--cyan)">.</span></h1>
+      <div class="brand-sub">Trạm quan sát AI · DASHBOARD</div>
+    </div>
+  </div>
+  <div class="top-actions">
+    <button type="button" class="live-pill" id="liveToggle" aria-pressed="true" title="Bật/tắt tự động đồng bộ dữ liệu mỗi 3 giây">
+      <span class="live-dot"></span>
+      <span id="liveText">Đồng bộ · 3 giây</span>
+    </button>
+    <button class="btn btn-sm" id="btnRefresh">↻ Làm mới</button>
+    <a class="btn btn-sm" href="/api/export.csv" download="fight_alerts_log.csv">⬇ Xuất CSV</a>
+    <a class="btn btn-sm" href="/api/export.json" download="fight_alerts_report.json">⬇ Xuất JSON</a>
+  </div>
+</header>
+
+<main class="container">
+  <section class="welcome" aria-labelledby="welcomeTitle">
+    <div>
+      <div class="eyebrow">Phát hiện xung đột</div>
+      <h2 id="welcomeTitle">Quan sát thông minh.<br>An tâm mỗi ngày.</h2>
+      <p>Để AI tìm khoảnh khắc cần chú ý. Bạn là người đưa ra quyết định.</p>
+    </div>
+    <div class="welcome-sticker" aria-hidden="true">
+      <svg viewBox="0 0 40 40" fill="none"><path d="m20 3 5 11 12 2-9 9 2 12-10-6-10 6 2-12-9-9 12-2 5-11Z" fill="white" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="m15 20 4 4 7-8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Cộng sự nhỏ.<br>An tâm lớn!</span>
+    </div>
+  </section>
+  <section class="mission-panel" aria-labelledby="missionTitle">
+    <div>
+      <div class="mission-heading"><span class="mission-icon" aria-hidden="true">↥</span><h2 id="missionTitle">Bắt đầu một lượt quan sát</h2></div>
+      <p class="mission-intro">Thêm video của bạn, chọn cộng sự AI và cùng kiểm tra những khoảnh khắc đáng chú ý.</p>
+      <ol class="mission-steps" aria-label="Các bước phân tích">
+        <li id="stepUpload" class="current" aria-current="step"><b>1</b> Thêm video</li>
+        <li id="stepAnalyze"><b>2</b> AI phân tích</li>
+        <li id="stepReview"><b>3</b> Xem kết quả</li>
+      </ol>
+    </div>
+    <form id="detectForm" class="detection-form">
+      <label class="upload-zone" id="uploadZone">
+        <span class="upload-icon" aria-hidden="true">＋</span>
+        <span class="upload-copy"><strong id="uploadFileName">Chọn hoặc kéo video vào đây</strong><small>MP4, AVI, MOV, MKV, WebM · Tối đa 1 GB</small></span>
+        <input id="detectFile" aria-label="Chọn video để phân tích" type="file" accept="video/*,.avi,.mkv" required>
+      </label>
+      <label class="field-label" for="detectModel">CỘNG SỰ AI
+        <select id="detectModel"><option value="m1">M1 · CNN</option><option value="m2">M2 · YOLO classification</option><option value="m3" selected>M3 · CNN + LSTM</option></select>
+      </label>
+      <button class="btn" id="detectButton" type="submit">Phân tích video <span aria-hidden="true">→</span></button>
+      <p id="detectStatus" class="detection-feedback" role="status" aria-live="polite">Sẵn sàng khi bạn muốn. Chọn một video để bắt đầu nhé!</p>
+    </form>
+    <video id="detectResult" aria-label="Video kết quả phân tích" class="detection-result" controls playsinline></video>
+  </section>
+  <script src="/assets/detection.js" defer></script>
+  <section class="panel camera-panel" aria-labelledby="cameraTitle">
+    <div class="panel-header">
+      <div class="panel-title" id="cameraTitle">◉ Camera trực tiếp</div>
+      <span class="badge" id="cameraBadge">Đã tắt</span>
+    </div>
+    <div class="camera-layout">
+      <div class="camera-screen">
+        <img id="cameraStream" alt="Camera trực tiếp với khung và kết quả phát hiện AI" hidden>
+        <div class="camera-placeholder" id="cameraPlaceholder"><span class="empty-play" aria-hidden="true">◉</span><strong>Góc nhìn trực tiếp của bạn</strong><span>Bật camera để AI cùng quan sát.</span></div>
+      </div>
+      <div class="camera-controls">
+        <p>Dùng webcam hoặc camera USB gắn với máy chạy dashboard. Cảnh báo và clip bằng chứng được lưu tự động.</p>
+        <form id="cameraForm">
+          <label class="field-label" for="cameraSource">CAMERA
+            <select id="cameraSource"><option value="0">Camera 0 · Mặc định</option><option value="1">Camera 1 · USB</option><option value="2">Camera 2</option><option value="3">Camera 3</option></select>
+          </label>
+          <label class="field-label" for="cameraModel">CỘNG SỰ AI
+            <select id="cameraModel"><option value="m1">M1 · CNN</option><option value="m2">M2 · YOLO classification</option><option value="m3">M3 · CNN + LSTM</option></select>
+          </label>
+          <label class="field-label" for="cameraThreshold">NGƯỠNG FIGHT (0–1, TÙY CHỌN)
+            <input id="cameraThreshold" type="number" min="0" max="1" step="0.01" placeholder="Tự động theo model">
+          </label>
+          <div class="camera-actions"><button class="btn btn-true" id="cameraStart" type="submit">◉ Bật camera</button><button class="btn btn-false" id="cameraStop" type="button" disabled>■ Tắt camera</button></div>
+        </form>
+        <p id="cameraStatus" class="detection-feedback" role="status" aria-live="polite">Sẵn sàng. M1 phù hợp để thử tốc độ trên CPU.</p>
+        <div class="camera-metrics" aria-label="Chỉ số nhận diện trực tiếp"><span>Điểm Fight <b id="cameraScore">—</b></span><span>Tốc độ <b id="cameraFps">—</b></span></div>
+        <small>Camera tiếp tục chạy khi tải lại trang. Nhấn Tắt camera để kết thúc phiên. Tắt camera trước khi phân tích file video.</small>
+      </div>
+    </div>
+  </section>
+  <script src="/assets/camera.js" defer></script>
+  <div class="rec-banner" id="recBanner">
+    <div><span class="pulse-rec"></span><span id="recBannerText">Đang lưu clip cảnh báo…</span></div>
+    <span class="mono" style="font-size:12px">Clip sẽ tự động khóa mã băm SHA-256 ngay khi kết thúc đợt cảnh báo</span>
+  </div>
+
+  <div class="section-heading"><h2>Toàn cảnh quan sát <span aria-hidden="true">✦</span></h2><span>Số liệu tổng hợp từ các phiên đã lưu</span></div>
+  <section class="kpi-grid" aria-label="Thống kê giám sát">
+    <div class="kpi-card kpi-red">
+      <span class="kpi-icon" aria-hidden="true">⚑</span>
+      <div class="kpi-label">Khoảnh khắc cần chú ý</div>
+      <div class="kpi-value" id="kpiTotal">0</div>
+      <div class="kpi-sub" id="kpiTotalSub">0 giây video · 0 MB lưu trữ</div>
+    </div>
+    <div class="kpi-card kpi-amber">
+      <span class="kpi-icon" aria-hidden="true">◷</span>
+      <div class="kpi-label">Đang chờ bạn kiểm tra</div>
+      <div class="kpi-value" id="kpiUnreviewed">0</div>
+      <div class="kpi-sub" id="kpiSeveritySub">0 Nghiêm trọng · 0 Cao</div>
+    </div>
+    <div class="kpi-card kpi-emerald">
+      <span class="kpi-icon" aria-hidden="true">◎</span>
+      <div class="kpi-label">Tỷ lệ cảnh báo nhầm</div>
+      <div class="kpi-value" id="kpiFalseRate">--</div>
+      <div class="kpi-sub" id="kpiReviewSub">0 đúng · 0 báo nhầm (trên clip đã duyệt)</div>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-icon" aria-hidden="true">ϟ</span>
+      <div class="kpi-label">Tốc độ cộng sự AI</div>
+      <div class="kpi-value" id="kpiPerf">-- FPS</div>
+      <div class="kpi-sub" id="kpiPerfSub">Chưa có phiên giám sát</div>
+    </div>
+  </section>
+
+  <section class="workspace">
+    <!-- Left: Forensic Video Player with Tactical Border-Line Canvas -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>▶ Góc xem bằng chứng</span>
+          <span id="playerSeverityBadge"></span>
+          <span id="playerReviewBadge"></span>
+        </div>
+        <div class="mono" style="font-size:12px;color:var(--text-muted)" id="playerHeaderId">Chưa chọn clip</div>
+      </div>
+
+      <div class="viewport-wrap" id="viewportWrap">
+        <video id="evidenceVideo" controls preload="metadata" playsinline></video>
+        <canvas id="hudCanvas"></canvas>
+        <div class="viewport-empty" id="viewportEmpty">
+          <div class="empty-play" aria-hidden="true"><svg viewBox="0 0 32 32" fill="none"><path d="m11 6 15 10-15 10V6Z" fill="white" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/></svg></div>
+          <div style="font-weight:600;color:var(--text-main);margin-bottom:4px">Chưa có clip bằng chứng được chọn</div>
+          <div style="max-width:460px;font-size:12.5px">
+            Thêm video ở phía trên để AI phân tích, rồi chọn một cảnh báo trong danh sách để xem clip và vùng hành vi được đánh dấu.
+          </div>
+        </div>
+      </div>
+
+      <div class="hud-toolbar">
+        <div class="toggle-group">
+          <label class="chk-pill" title="Hiển thị đường viền khoanh vùng khu vực xảy ra hành vi đánh nhau">
+            <input type="checkbox" id="chkZone" checked>
+            <span>Vùng hành vi</span>
+          </label>
+          <label class="chk-pill" title="Hiển thị khung nhận diện từng người (YOLO Person)">
+            <input type="checkbox" id="chkPersons" checked>
+            <span>Khung đối tượng</span>
+          </label>
+          <label class="chk-pill" title="Làm tối vùng nền bên ngoài khu vực xô xát để tập trung quan sát">
+            <input type="checkbox" id="chkSpotlight">
+            <span>Tập trung vùng xô xát</span>
+          </label>
+        </div>
+        <div class="toggle-group">
+          <button class="btn btn-sm" id="btnPrevFrame" title="Lùi 1 khung hình">⏮ -1F</button>
+          <button class="btn btn-sm" id="btnNextFrame" title="Tiến 1 khung hình">⏭ +1F</button>
+          <button class="btn btn-sm btn-primary" id="btnJumpPeak" title="Nhảy tới thời điểm xác suất đánh nhau cao nhất">Tới Đỉnh Xung Đột</button>
+          <select id="selSpeed" class="btn btn-sm" title="Tốc độ phát lại (chậm 0.25x để soi kỹ hành vi)">
+            <option value="0.25">0.25x Chậm</option>
+            <option value="0.5">0.5x Chậm</option>
+            <option value="1" selected>1.0x Chuẩn</option>
+            <option value="1.5">1.5x Nhanh</option>
+          </select>
+          <button class="btn btn-sm" id="btnSnapshot" title="Tải ảnh chụp khung hình hiện tại kèm khung khoanh vùng AI">Chụp Ảnh AI</button>
+          <a class="btn btn-sm" id="btnDownloadClip" href="#" download>⬇ Tải MP4</a>
+        </div>
+      </div>
+
+      <div class="timeline-box">
+        <div class="timeline-head">
+          <span>Điểm Fight theo thời gian · Chạm để tua</span>
+          <span class="mono" id="timelineReadout">0.00s / 0.00s · Điểm: --%</span>
+        </div>
+        <canvas id="timelineCanvas" width="900" height="66"></canvas>
+      </div>
+
+      <div class="inspector-body">
+        <div class="review-box">
+          <div style="font-weight:700;font-size:12.5px;margin-bottom:8px;color:var(--text-muted);text-transform:uppercase">
+            Kiểm duyệt cảnh báo (Phím tắt: 1=Đúng, 2=Báo nhầm, 3=Bỏ nhãn)
+          </div>
+          <div class="review-actions">
+            <button class="btn btn-true" id="btnMarkTrue" data-review="true_alert">✓ Xác nhận Đánh nhau (Đúng)</button>
+            <button class="btn btn-false" id="btnMarkFalse" data-review="false_alert">✕ Cảnh báo nhầm</button>
+            <button class="btn btn-neutral" id="btnMarkUnrev" data-review="unreviewed">↺ Bỏ nhãn</button>
+          </div>
+          <div class="notes-row">
+            <input type="text" id="inpNotes" placeholder="Ghi chú sự cố (VD: Xô xát khu vực hành lang B, 2 đối tượng)...">
+            <button class="btn btn-sm btn-primary" id="btnSaveNotes">Lưu ghi chú</button>
+          </div>
+          <div style="margin-top:9px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-sm" id="btnVerifyHash">Xác thực toàn vẹn SHA-256</button>
+            <span class="mono" style="font-size:11.5px;color:var(--text-muted)" id="hashStatusText"></span>
+          </div>
+        </div>
+
+        <div class="meta-grid" id="eventMetaGrid">
+          <div class="meta-item"><div class="k">Nguồn / Mô hình</div><div class="v">--</div></div>
+          <div class="meta-item"><div class="k">Điểm Đỉnh / Trung bình</div><div class="v">--</div></div>
+          <div class="meta-item"><div class="k">Thời gian bắt đầu (UTC)</div><div class="v">--</div></div>
+          <div class="meta-item"><div class="k">Thời lượng / Pre-roll</div><div class="v">--</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Annotated Alert Feed -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">⚑ Hộp cảnh báo</div>
+        <span class="mono" style="font-size:12px;color:var(--text-muted)" id="feedCountLabel">0 clip</span>
+      </div>
+      <div class="filter-bar">
+        <div class="tab-pills" id="reviewFilterTabs">
+          <button class="tab-pill active" data-val="all">Tất cả</button>
+          <button class="tab-pill" data-val="unreviewed">Chưa duyệt</button>
+          <button class="tab-pill" data-val="true_alert">Đánh nhau thật</button>
+          <button class="tab-pill" data-val="false_alert">Báo nhầm</button>
+        </div>
+        <div class="filter-inputs">
+          <select id="selSeverity">
+            <option value="all">Mọi mức độ</option>
+            <option value="critical">Nghiêm trọng (Critical)</option>
+            <option value="high">Cao (High)</option>
+            <option value="medium">Trung bình (Medium)</option>
+          </select>
+          <select id="selModel">
+            <option value="all">Mọi mô hình</option>
+            <option value="m1">M1 (CNN)</option>
+            <option value="m2">M2 (YOLO-cls)</option>
+            <option value="m3">M3 (YOLO+LSTM)</option>
+          </select>
+          <input type="search" id="inpSearch" placeholder="Tìm mã clip, nguồn, ghi chú...">
+        </div>
+      </div>
+      <div class="alert-list" id="alertList"></div>
+    </div>
+  </section>
+
+  <!-- Bottom Audit Log & Session Telemetry -->
+  <section class="panel bottom-section">
+    <div class="panel-header">
+      <div class="tab-pills" id="bottomTabs">
+        <button class="tab-pill active" data-tab="logs">Nhật ký hoạt động</button>
+        <button class="tab-pill" data-tab="sessions">ϟ Các phiên quan sát</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select id="selLogLevel" aria-label="Lọc mức độ nhật ký">
+          <option value="all">Tất cả mức Log</option>
+          <option value="CRITICAL">CRITICAL (Khẩn cấp)</option>
+          <option value="WARN">WARN (Cảnh báo)</option>
+          <option value="INFO">INFO (Thông tin)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="tabLogs">
+      <table>
+        <thead>
+          <tr>
+            <th>Thời gian (Local / UTC)</th>
+            <th>Mức độ</th>
+            <th>Mã Sự Kiện</th>
+            <th>Nội dung chi tiết</th>
+            <th>Điểm Fight</th>
+            <th>Bằng chứng</th>
+          </tr>
+        </thead>
+        <tbody id="logsTableBody"></tbody>
+      </table>
+    </div>
+
+    <div class="table-wrap" id="tabSessions" style="display:none">
+      <table>
+        <thead>
+          <tr>
+            <th>Phiên (Session)</th>
+            <th>Bắt đầu / Trạng thái</th>
+            <th>Nguồn &amp; Mô hình</th>
+            <th>Ngưỡng / Hold</th>
+            <th>Số Cảnh Báo</th>
+            <th>Pipeline FPS</th>
+            <th>Suy luận TB / P95</th>
+            <th>Xử lý P95</th>
+          </tr>
+        </thead>
+        <tbody id="sessionsTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+  <footer class="page-footer"><span>Sentinel · Cộng sự AI cho những góc nhìn an tâm.</span><span>AI gợi ý · Bạn xác nhận</span></footer>
+</main>
+
+<script id="initialState" type="application/json">__INITIAL_JSON__</script>
+<script src="/assets/evidence.js" defer></script>
+</body>
+</html>

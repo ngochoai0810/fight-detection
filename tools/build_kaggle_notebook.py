@@ -3,11 +3,27 @@
     python tools/build_kaggle_notebook.py
 """
 from pathlib import Path
+from hashlib import sha256
 
 import nbformat
 from nbformat.v4 import new_code_cell, new_markdown_cell, new_notebook
 
 PROJECT = Path(__file__).resolve().parents[1]
+TRAINING_SCRIPTS = (
+    "prepare_data.py", "eda.py", "crop_persons.py", "fight_data.py", "models.py",
+    "metrics.py", "train_utils.py", "train_cnn.py", "train_yolo_cls.py",
+    "train_cnn_lstm.py", "evaluate.py",
+)
+
+
+def training_requirements():
+    packages = []
+    for path in (PROJECT / "requirements.txt", PROJECT / "requirements/train.txt"):
+        for raw in path.read_text(encoding="utf-8").splitlines():
+            package = raw.split("#", 1)[0].strip()
+            if package and not package.startswith("-r"):
+                packages.append(package)
+    return list(dict.fromkeys(packages))
 
 INTRO = """# Phát hiện đánh nhau: huấn luyện trên Kaggle
 
@@ -21,13 +37,13 @@ Sau đó chọn **Save Version → Save & Run All** để notebook chạy nền,
 
 File này được sinh bởi `tools/build_kaggle_notebook.py`, nên sửa code trong `src/` rồi sinh lại, không sửa trực tiếp ở đây."""
 
-SETUP = """import os, shutil, subprocess, sys
+SETUP = """import json, os, platform, shutil, subprocess, sys
+from importlib.metadata import version
 from pathlib import Path
 
-try:
-    import ultralytics
-except ImportError:
-    subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', 'ultralytics'], check=True)
+# No --upgrade and no local constraints: preserve compatible Kaggle GPU packages.
+TRAIN_REQUIREMENTS = __TRAIN_REQUIREMENTS__
+subprocess.run([sys.executable, '-m', 'pip', 'install', '-q', *TRAIN_REQUIREMENTS], check=True)
 
 def find_dataset():
     if os.environ.get('FIGHT_ROOT'):
@@ -91,6 +107,13 @@ STEPS = [
     ),
     (
         "## 7. Đóng gói kết quả\n\nTải `results.zip` ở tab Output, gồm cả checkpoint và `splits.csv`.",
+        "environment = {\n"
+        "    'python': platform.python_version(), 'platform': platform.platform(),\n"
+        "    'packages': {name: version(name) for name in TRAIN_REQUIREMENTS},\n"
+        "    'torch_cuda': torch.version.cuda,\n"
+        "    'device': torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'cpu',\n"
+        "}\n"
+        "Path('results/environment.json').write_text(json.dumps(environment, indent=2), encoding='utf-8')\n"
         "shutil.copy('splits/splits.csv', 'results/splits.csv')\n"
         "shutil.make_archive('results', 'zip', 'results')\n"
         "print('Da tao results.zip')\n",
@@ -99,8 +122,10 @@ STEPS = [
 
 
 def main():
-    cells = [new_markdown_cell(INTRO), new_code_cell(SETUP)]
-    for path in sorted((PROJECT / "src").glob("*.py")):
+    setup = SETUP.replace("__TRAIN_REQUIREMENTS__", repr(training_requirements()))
+    cells = [new_markdown_cell(INTRO), new_code_cell(setup)]
+    for name in TRAINING_SCRIPTS:
+        path = PROJECT / "src" / name
         source = path.read_text(encoding="utf-8")
         cells.append(new_code_cell(f"(SRC / {path.name!r}).write_text({source!r}, encoding='utf-8');"))
     for title, code in STEPS:
@@ -108,7 +133,10 @@ def main():
     notebook = new_notebook(
         cells=cells, metadata={"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}}
     )
-    nbformat.write(notebook, PROJECT / "notebooks" / "kaggle_train.ipynb")
+    for cell in notebook.cells:
+        cell["id"] = sha256(f"{cell.cell_type}\n{cell.source}".encode("utf-8")).hexdigest()[:12]
+    with (PROJECT / "notebooks" / "kaggle_train.ipynb").open("w", encoding="utf-8", newline="\n") as stream:
+        nbformat.write(notebook, stream)
 
 
 if __name__ == "__main__":

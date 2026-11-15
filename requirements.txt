@@ -1,12 +1,7 @@
+# Dashboard and camera/video inference. Training and test extras are in requirements/.
 torch
 torchvision
 ultralytics
 opencv-python
 numpy
-pandas
-scikit-learn
-matplotlib
-pytest
-nbformat
-nbclient
-ipykernel
+Pillow

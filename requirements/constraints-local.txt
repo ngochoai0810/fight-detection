@@ -1,0 +1,16 @@
+# Direct package versions observed on Windows / Python 3.11.9.
+# Use optionally: pip install -r requirements.txt -c requirements/constraints-local.txt
+# This is not a full transitive lock. Do not impose this CPU/local profile on Kaggle.
+torch==2.15.0
+torchvision==0.29.2
+ultralytics==8.4.202
+opencv-python==4.13.0.92
+numpy==2.4.4
+Pillow==12.2.0
+pandas==3.0.2
+scikit-learn==1.8.0
+matplotlib==3.10.9
+pytest==9.2.0
+nbformat==5.11.1
+nbclient==0.11.0
+ipykernel==7.4.0
