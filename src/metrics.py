@@ -40,6 +40,38 @@ def choose_threshold(y, p):
     return float(candidates[len(scores) - 1 - int(np.argmax(scores[::-1]))])
 
 
+def threshold_sweep(y, p):
+    """All distinct operating points. Call on validation to select a threshold."""
+    y, p = np.asarray(y), np.asarray(p, dtype=float)
+    if not len(y) or len(y) != len(p) or set(y.tolist()) != {0, 1}:
+        raise ValueError("Threshold selection requires both classes in validation")
+    if not np.isfinite(p).all() or ((p < 0) | (p > 1)).any():
+        raise ValueError("Probabilities must be finite and within [0, 1]")
+    rows = []
+    for threshold in np.unique(np.r_[0., .5, 1., p]):
+        row = clip_metrics(y, p, threshold)
+        precision, recall = row["precision"], row["recall"]
+        row["f2"] = 5 * precision * recall / (4 * precision + recall) if precision + recall else 0.
+        row["fpr"] = row["fp"] / (row["fp"] + row["tn"])
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def select_operating_point(sweep, strategy="f2", min_recall=.9):
+    if strategy not in ("f2", "f1", "precision_at_recall"):
+        raise ValueError("Unknown threshold strategy")
+    if not 0 <= min_recall <= 1:
+        raise ValueError("min_recall must be within [0, 1]")
+    candidates = sweep
+    columns = [strategy, "threshold"]
+    if strategy == "precision_at_recall":
+        candidates = sweep[sweep["recall"] >= min_recall]
+        columns = ["precision", "recall", "threshold"]
+    if candidates.empty:
+        raise ValueError("No validation threshold satisfies the requested recall")
+    return candidates.sort_values(columns, ascending=False).iloc[0].to_dict()
+
+
 def errors_table(clips, threshold):
     pred = (clips["prob"] >= threshold).astype(int)
     wrong = clips[pred != clips["label"]].copy()

@@ -90,6 +90,24 @@ def check_no_leak(df):
     return sorted(test_sources & set(sources[develop]))
 
 
+def reuse_splits(index, saved):
+    """Re-evaluate existing weights without accidentally moving training clips to val."""
+    keys = ["video", "label"]
+    if not {"video", "label", "split"} <= set(saved):
+        raise ValueError("Saved splits require video, label and split")
+    if saved.duplicated(keys).any() or not saved["split"].isin(["train", "val", "test"]).all():
+        raise ValueError("Invalid or duplicate entries in saved splits")
+    current_keys = set(zip(index.video, index.label))
+    saved_keys = set(zip(saved.video, saved.label))
+    if current_keys != saved_keys:
+        raise ValueError("Saved splits do not match the readable source videos")
+    out = index.drop(columns="split", errors="ignore").merge(saved[keys + ["split"]], on=keys, validate="one_to_one")
+    if ((out.source_split == "val") != (out["split"] == "test")).any():
+        raise ValueError("Saved splits must preserve the original official test set")
+    check_no_leak(out)
+    return out
+
+
 def sample_indices(n_frames, k):
     """Chon k vi tri cach deu nhau, lay diem giua moi doan."""
     return ((np.arange(k) + 0.5) * n_frames / k).astype(int)
@@ -146,6 +164,7 @@ def main():
     parser.add_argument("--num-frames", type=int, default=16)
     parser.add_argument("--val-fraction", type=float, default=0.1)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--reuse-splits", help="CSV split goc di kem checkpoint; khong chia lai khi danh gia")
     args = parser.parse_args()
 
     root = Path(args.root)
@@ -158,7 +177,7 @@ def main():
         print(f"Bo {len(bad)} clip khong doc duoc: {bad['relpath'].tolist()}")
     index = index[index["readable"]].reset_index(drop=True)
 
-    splits = make_splits(index, args.val_fraction, args.seed)
+    splits = reuse_splits(index, pd.read_csv(args.reuse_splits)) if args.reuse_splits else make_splits(index, args.val_fraction, args.seed)
     overlap = check_no_leak(splits)
     if overlap:
         print(f"CANH BAO: {len(overlap)} nguon video xuat hien o ca test va train/val: {overlap[:10]}")

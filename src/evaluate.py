@@ -18,7 +18,8 @@ from sklearn.metrics import roc_curve
 from torch.utils.data import DataLoader
 
 from fight_data import ClipDataset, FrameDataset, list_clips
-from metrics import aggregate_clips, choose_threshold, clip_metrics, comparison_table, errors_table
+from metrics import aggregate_clips, clip_metrics, comparison_table, errors_table, threshold_sweep, select_operating_point
+from prediction_analysis import analyze_model, file_hash
 from models import CNNLSTM, build_cnn
 from prepare_data import read_image
 from train_utils import default_device, predict_clips
@@ -129,7 +130,12 @@ def main():
     parser.add_argument("--image-size", type=int, default=224)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--yolo-weights", help="Trong so phat hien nguoi, chi dung voi m3")
+    parser.add_argument("--threshold-strategy", choices=("f2", "f1", "precision_at_recall"), default="f2")
+    parser.add_argument("--min-recall", type=float, default=.9)
+    parser.add_argument("--splits", default="splits/splits.csv")
     args = parser.parse_args()
+    if not 0 <= args.min_recall <= 1:
+        parser.error("min-recall must be within [0, 1]")
 
     out = Path(args.results) / args.model
     out.mkdir(parents=True, exist_ok=True)
@@ -144,7 +150,8 @@ def main():
     if args.model == "m3":
         fps = add_detector_time(fps, args, device)
 
-    threshold = choose_threshold(val_clips["label"], val_clips["prob"])
+    point = select_operating_point(threshold_sweep(val_clips.label, val_clips.prob), args.threshold_strategy, args.min_recall)
+    threshold = point["threshold"]
     metrics = clip_metrics(test_clips["label"], test_clips["prob"], threshold)
     metrics.update(
         model=args.model,
@@ -152,11 +159,17 @@ def main():
         size_mb=round(Path(args.ckpt).stat().st_size / 1e6, 1),
         device=torch.cuda.get_device_name(0) if device == "cuda" else "cpu",
         test_clips=len(test_clips),
+        threshold_strategy=args.threshold_strategy,
+        threshold_selected_on="val",
+        checkpoint_sha256=file_hash(args.ckpt),
     )
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2))
     test_clips.to_csv(out / "preds_test.csv", index=False)
+    val_clips.to_csv(out / "preds_val.csv", index=False)
     errors_table(test_clips, threshold).to_csv(out / "errors.csv", index=False)
     save_plots(test_clips, metrics, out)
+    metadata = pd.read_csv(args.splits) if Path(args.splits).is_file() else None
+    analyze_model(out, Path(args.results) / "analysis" / args.model, metadata, args.min_recall, args.frames)
 
     table = comparison_table(args.results)
     table.to_csv(Path(args.results) / "comparison.csv", index=False)

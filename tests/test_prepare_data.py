@@ -10,6 +10,7 @@ from prepare_data import (
     sample_indices,
     scan_dataset,
     source_id,
+    reuse_splits,
 )
 
 
@@ -42,6 +43,22 @@ def test_scan_rejects_folder_without_rwf_layout(tmp_path):
 def test_source_id_strips_clip_index():
     assert source_id("abc_DEF_12") == "abc_DEF"
     assert source_id("noindex") == "noindex"
+
+
+def test_reuse_saved_split_preserves_assignments_and_rejects_wrong_dataset():
+    index = fake_index()
+    saved = make_splits(index, seed=42)
+    restored = reuse_splits(index.sample(frac=1, random_state=7), saved)
+    keys = ["video", "label"]
+    pd.testing.assert_series_equal(saved.set_index(keys)["split"].sort_index(), restored.set_index(keys)["split"].sort_index())
+    with pytest.raises(ValueError, match="match"):
+        reuse_splits(index.iloc[:-1], saved)
+    with pytest.raises(ValueError, match="duplicate"):
+        reuse_splits(index, pd.concat([saved, saved.iloc[:1]]))
+    wrong = saved.copy()
+    wrong.loc[wrong.source_split == "val", "split"] = "train"
+    with pytest.raises(ValueError, match="official test"):
+        reuse_splits(index, wrong)
 
 
 def test_splits_are_70_10_20_and_stratified():
