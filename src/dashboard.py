@@ -384,7 +384,7 @@ def handler(root):
                         if job["status"] in ("uploading", "running"):
                             self._send_json({"error": "Hãy chờ phân tích video hoàn tất trước khi bật camera"}, 409)
                             return
-                        state = camera.start(payload.get("model", "m1"), payload.get("source", 0), payload.get("threshold"))
+                        state = camera.start(payload.get("model", "m1"), payload.get("source", 0), payload.get("threshold"), payload.get("window_seconds", 5.0))
                     self._send_json(state, 202)
                 except (ValueError, TypeError) as exc:
                     self._send_json({"error": str(exc)}, 400)

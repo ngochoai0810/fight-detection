@@ -28,13 +28,15 @@ class LiveCamera:
         with self.condition:
             return self.thread is not None and self.thread.is_alive()
 
-    def start(self, model="m1", source=0, threshold=None):
+    def start(self, model="m1", source=0, threshold=None, window_seconds=5.0):
         if model not in ("m1", "m2", "m3"):
             raise ValueError("Mô hình không hợp lệ")
         if type(source) is not int or not 0 <= source <= 9:
             raise ValueError("Camera phải là chỉ số từ 0 đến 9")
         if threshold is not None and (type(threshold) not in (int, float) or not 0 <= threshold <= 1):
             raise ValueError("Ngưỡng phải nằm trong [0, 1]")
+        if type(window_seconds) not in (int, float) or not 0.5 <= window_seconds <= 30:
+            raise ValueError("Cửa sổ M3 phải nằm trong [0.5, 30] giây")
         weights = self.project / f"results/{model}/best.pt"
         yolo = self.project / "yolo11n.pt"
         if not weights.is_file():
@@ -47,10 +49,11 @@ class LiveCamera:
             self.stop_event = threading.Event()
             self.frame = None
             self.last_publish = 0
-            self.state = {"status": "starting", "source": source, "model": model}
+            self.state = {"status": "starting", "source": source, "model": model, "window_seconds": window_seconds}
             args = Namespace(
                 source=str(source), model=model, weights=str(weights), yolo_weights=str(yolo),
                 image_size=224, threshold=threshold, seq_len=16, stride=2,
+                window_seconds=window_seconds,
                 save=None, output_dir=str(self.root), device=None, metrics=None,
                 camera_backend="auto", camera_width=640, camera_height=480, camera_mjpg=True,
                 no_voice=True, voice_cooldown=10, alert_hold=1.0, pre_seconds=2.5,

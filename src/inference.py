@@ -18,6 +18,7 @@ Cach dung:
 import argparse
 import collections
 import json
+import hashlib
 import os
 import time
 from pathlib import Path
@@ -29,8 +30,10 @@ import torchvision.transforms.functional as TF
 
 from models import FrameCNN, CNNLSTM
 from alerts import AlertOverlay, VoiceAlert, AlertConfirmation
+from telegram_alerts import TelegramAlert
 from monitoring import Monitor
 from crop_persons import BehaviorTracker, make_person_locator, union_box
+from temporal import TemporalWindow
 
 
 def parse_args():
@@ -42,6 +45,7 @@ def parse_args():
     parser.add_argument("--image-size", type=int, default=224, help="Kich thuoc frame dua vao model")
     parser.add_argument("--threshold", type=float, default=None, help="Nguong xac suat de canh bao Fight (0.0 - 1.0)")
     parser.add_argument("--seq-len", type=int, default=16, help="So luong frame trong mot window (cho M3 hoac smooth M1)")
+    parser.add_argument("--window-seconds", type=float, default=5.0, help="Thoi luong cua so M3; mac dinh 5 giay nhu clip huan luyen")
     parser.add_argument("--stride", type=int, default=2, help="Lay mau moi N frame de tiet kiem tai tinh toan")
     parser.add_argument("--save", type=str, default=None, help="Duong dan luu video ket qua (neu can)")
     parser.add_argument("--output-dir", default="runs/live", help="Thu muc clip bang chung, log va hieu nang")
@@ -70,6 +74,8 @@ def parse_args():
         parser.error("stride, seq-len va image-size phai lon hon 0")
     if args.threshold is not None and not 0 <= args.threshold <= 1:
         parser.error("threshold phai nam trong [0, 1]")
+    if not 0.5 <= args.window_seconds <= 30:
+        parser.error("window-seconds phai nam trong [0.5, 30]")
     return args
 
 
@@ -106,7 +112,11 @@ def resolve_threshold(args):
         return args.threshold
     metrics = Path(args.metrics) if args.metrics else Path(args.weights).with_name("metrics.json")
     if metrics.is_file():
-        value = float(json.loads(metrics.read_text(encoding="utf-8"))["threshold"])
+        payload = json.loads(metrics.read_text(encoding="utf-8"))
+        expected_hash = payload.get("checkpoint_sha256")
+        if expected_hash and hashlib.sha256(Path(args.weights).read_bytes()).hexdigest() != expected_hash:
+            raise ValueError("Threshold/metrics khong thuoc checkpoint nay")
+        value = float(payload["threshold"])
         if not 0 <= value <= 1:
             raise ValueError("Threshold trong metrics.json phai nam trong [0, 1]")
         return value
@@ -190,10 +200,15 @@ def run_inference(args, on_frame=None, stop_event=None):
     confirmation = AlertConfirmation(args.alert_hold)
     is_fight = False
     voice = VoiceAlert(enabled=not args.no_voice, cooldown=args.voice_cooldown)
+    telegram = TelegramAlert.from_env()
 
     source = int(args.source) if args.source.isdigit() else args.source
     cap, first_frame = open_capture(source, args.camera_backend, args.camera_width, args.camera_height, args.camera_mjpg)
-    source_fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    source_fps = cap.get(cv2.CAP_PROP_FPS)
+    if not np.isfinite(source_fps) or source_fps <= 0:
+        source_fps = 25.0
+    file_source = isinstance(source, str) and Path(source).is_file()
+    args.window_seconds = getattr(args, "window_seconds", 5.0)
 
     writer = None
     if args.save:
@@ -203,14 +218,14 @@ def run_inference(args, on_frame=None, stop_event=None):
         writer, save_size, _ = open_evidence_writer(args.save, source_fps, (width, height))
         print(f"[*] Se luu video ket qua vao: {args.save}")
 
-    frame_queue = collections.deque(maxlen=args.seq_len)
+    window = TemporalWindow(args.seq_len, args.window_seconds)
     prob_history = collections.deque(maxlen=10)
 
     frame_idx = 0
     fight_prob = 0.0
     fps_display = 0.0
     detections = {"zone": None, "zone_kind": None, "persons": []}
-    prev_time = time.time()
+    prev_time = stream_started = time.monotonic()
 
     print("[*] Bat dau nhan dien. Nhan 'q' tren cua so hien thi de dung.")
 
@@ -232,11 +247,13 @@ def run_inference(args, on_frame=None, stop_event=None):
                 break
 
             frame_idx += 1
-            curr_time = time.time()
+            curr_time = time.monotonic()
+            frame_time = (frame_idx - 1) / source_fps if file_source else curr_time - stream_started
             fps_display = 1.0 / max(curr_time - prev_time, 1e-5)
             prev_time = curr_time
 
             if frame_idx % args.stride == 0:
+                predicted = False
                 inference_started = time.perf_counter()
                 person_boxes = person_locator(raw_frame) if person_locator is not None else []
                 detections = tracker.update(raw_frame, person_boxes=person_boxes, recompute=True)
@@ -247,6 +264,7 @@ def run_inference(args, on_frame=None, stop_event=None):
                         logit = model(tensor)
                         fight_prob = torch.sigmoid(logit).item()
                     prob_history.append(fight_prob)
+                    predicted = True
                     smoothed_prob = sum(prob_history) / len(prob_history)
 
                 elif args.model == "m2":
@@ -260,22 +278,27 @@ def run_inference(args, on_frame=None, stop_event=None):
                     probs = results.probs.data.cpu().numpy()
                     fight_prob = float(probs[fight_idx])
                     prob_history.append(fight_prob)
+                    predicted = True
                     smoothed_prob = sum(prob_history) / len(prob_history)
 
                 elif args.model == "m3":
                     cropped = crop_from_boxes(raw_frame, person_boxes)
                     tensor = preprocess_frame(cropped, args.image_size)
-                    frame_queue.append(tensor)
+                    window.add(frame_time, tensor)
+                    sequence = window.sample()
 
-                    if len(frame_queue) == args.seq_len:
-                        clip_tensor = torch.stack(list(frame_queue)).unsqueeze(0).to(device)
+                    if sequence is not None:
+                        clip_tensor = torch.stack(sequence).unsqueeze(0).to(device)
                         with torch.no_grad():
                             logit = model(clip_tensor)
                             fight_prob = torch.sigmoid(logit).item()
                         prob_history.append(fight_prob)
+                        predicted = True
+                    else:
+                        prob_history.clear()
                     smoothed_prob = sum(prob_history) / len(prob_history) if prob_history else fight_prob
 
-                if args.model != "m3" or len(frame_queue) == args.seq_len:
+                if predicted:
                     inference_ms = (time.perf_counter() - inference_started) * 1000
             else:
                 detections = tracker.update(raw_frame, recompute=False, cached=detections)
@@ -284,12 +307,10 @@ def run_inference(args, on_frame=None, stop_event=None):
             ready = bool(prob_history)
             above_threshold = ready and smoothed_prob >= args.threshold
             if frame_idx % args.stride == 0:
-                # File processing can run faster/slower than playback; confirm on video time.
-                is_fight = confirmation.update(
-                    above_threshold, now=frame_idx / source_fps if isinstance(source, str) else None
-                )
+                is_fight = confirmation.update(above_threshold, now=frame_time)
             pending = above_threshold and not is_fight
             voice.update(is_fight)
+            telegram.update(is_fight, smoothed_prob, args.model, args.source)
 
             display_frame = overlay.draw(
                 raw_frame.copy(),
@@ -326,6 +347,8 @@ def run_inference(args, on_frame=None, stop_event=None):
                     "score": smoothed_prob, "threshold": args.threshold,
                     "active": is_fight, "pending": pending, "ready": ready,
                     "fps": fps_display, "model": args.model,
+                    "window_seconds": args.window_seconds if args.model == "m3" else None,
+                    "window_coverage": round(window.coverage, 2) if args.model == "m3" else None,
                 })
             if key == ord("q"):
                 break

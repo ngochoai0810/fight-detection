@@ -96,3 +96,62 @@ def test_dashboard_pipeline_callback_stop_releases_camera_and_finalizes_session(
     assert camera.snapshot()["status"] == "stopped"
     with connect(tmp_path) as db:
         assert db.execute("SELECT status FROM sessions").fetchone()[0] == "completed"
+
+
+def test_m3_file_clock_waits_for_five_second_window_in_fast_batch(tmp_path, monkeypatch):
+    import inference
+    import numpy as np
+    from live_camera import LiveCamera
+    from threading import Event
+
+    class Capture:
+        index = 0
+        released = False
+        def get(self, prop):
+            return 30.
+        def read(self):
+            self.index += 1
+            return self.index <= 180, np.full((64, 64, 3), self.index - 1, dtype=np.uint8)
+        def release(self):
+            self.released = True
+
+    camera = LiveCamera(tmp_path)
+    camera.project = tmp_path
+    weights = tmp_path / "results/m3/best.pt"
+    weights.parent.mkdir(parents=True)
+    weights.touch()
+    (tmp_path / "yolo11n.pt").touch()
+    source = tmp_path / "input.mp4"
+    source.touch()
+    cap, stop = Capture(), Event()
+    inputs = []
+
+    def model(tensor):
+        inputs.append(tensor.clone())
+        return torch.tensor([-10.])
+
+    monkeypatch.setattr(inference, "load_model", lambda *args: model)
+    monkeypatch.setattr(inference, "open_capture", lambda *args: (cap, cap.read()[1]))
+    monkeypatch.setattr(inference, "make_person_locator", lambda **kwargs: lambda image: [])
+    monkeypatch.setattr(inference, "preprocess_frame", lambda image, size: torch.tensor(float(image[0, 0, 0])).reshape(1, 1, 1))
+
+    def runner(args, on_frame, stop_event):
+        args.source = str(source)
+        args.device = "cpu"
+        args.threshold = .5
+        def callback(frame, state):
+            if state["ready"]:
+                assert state["window_coverage"] >= 4.8
+                stop_event.set()
+        inference.run_inference(args, callback, stop_event)
+
+    camera.runner = runner
+    camera.start("m3")
+    camera.thread.join(timeout=15)
+    assert not camera.thread.is_alive()
+    assert camera.snapshot()["status"] == "stopped", camera.snapshot()
+    assert cap.released and len(inputs) == 1
+    selected = inputs[0].flatten().tolist()
+    assert len(selected) == 16
+    assert (max(selected) - min(selected)) / 30 >= 4.4
+    assert cap.index >= 145

@@ -88,11 +88,14 @@
           <label class="field-label" for="cameraThreshold">NGƯỠNG FIGHT (0–1, TÙY CHỌN)
             <input id="cameraThreshold" type="number" min="0" max="1" step="0.01" placeholder="Tự động theo model">
           </label>
+          <label class="field-label" for="cameraWindow">CỬA SỔ M3 (GIÂY)
+            <input id="cameraWindow" type="number" min="0.5" max="30" step="0.5" value="5" required>
+          </label>
           <div class="camera-actions"><button class="btn btn-true" id="cameraStart" type="submit">◉ Bật camera</button><button class="btn btn-false" id="cameraStop" type="button" disabled>■ Tắt camera</button></div>
         </form>
         <p id="cameraStatus" class="detection-feedback" role="status" aria-live="polite">Sẵn sàng. M1 phù hợp để thử tốc độ trên CPU.</p>
         <div class="camera-metrics" aria-label="Chỉ số nhận diện trực tiếp"><span>Điểm Fight <b id="cameraScore">—</b></span><span>Tốc độ <b id="cameraFps">—</b></span></div>
-        <small>Camera tiếp tục chạy khi tải lại trang. Nhấn Tắt camera để kết thúc phiên. Tắt camera trước khi phân tích file video.</small>
+        <small>M3 mặc định lấy 16 frame trải đều trong khoảng 5 giây như lúc huấn luyện. Camera tiếp tục chạy khi tải lại trang; nhấn Tắt camera trước khi phân tích file video.</small>
       </div>
     </div>
   </section>

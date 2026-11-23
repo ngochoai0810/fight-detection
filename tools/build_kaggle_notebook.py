@@ -4,6 +4,7 @@
 """
 from pathlib import Path
 from hashlib import sha256
+import argparse
 
 import nbformat
 from nbformat.v4 import new_code_cell, new_markdown_cell, new_notebook
@@ -12,7 +13,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 TRAINING_SCRIPTS = (
     "prepare_data.py", "eda.py", "crop_persons.py", "fight_data.py", "models.py",
     "metrics.py", "train_utils.py", "train_cnn.py", "train_yolo_cls.py",
-    "train_cnn_lstm.py", "evaluate.py",
+    "train_cnn_lstm.py", "prediction_analysis.py", "evaluate.py",
 )
 
 
@@ -59,6 +60,8 @@ WORK = Path(os.environ.get('FIGHT_WORK', '/kaggle/working'))
 DATA = Path(os.environ.get('FIGHT_DATA', '/tmp/fight'))
 EPOCHS = int(os.environ.get('FIGHT_EPOCHS', 30))
 IMAGE_SIZE = int(os.environ.get('FIGHT_IMAGE_SIZE', 224))
+THRESHOLD_STRATEGY = os.environ.get('FIGHT_THRESHOLD_STRATEGY', 'f2')
+MIN_RECALL = float(os.environ.get('FIGHT_MIN_RECALL', .9))
 EXTRA = ['--no-pretrained'] if os.environ.get('FIGHT_NO_PRETRAINED') else []
 SRC = WORK / 'src'
 SRC.mkdir(parents=True, exist_ok=True)
@@ -98,7 +101,8 @@ STEPS = [
     ),
     (
         "## 6. Đánh giá trên tập test\n\nNgưỡng được chọn trên validation. Bảng cuối là so sánh ba mô hình.",
-        "common = ['--image-size', IMAGE_SIZE]\n"
+        "import pandas as pd\n"
+        "common = ['--image-size', IMAGE_SIZE, '--threshold-strategy', THRESHOLD_STRATEGY, '--min-recall', MIN_RECALL]\n"
         "run('evaluate.py', '--model', 'm1', '--frames', DATA / 'frames', *common)\n"
         "run('evaluate.py', '--model', 'm2', '--frames', DATA / 'frames', *common)\n"
         "run('evaluate.py', '--model', 'm3', '--frames', DATA / 'crops', '--full-frames', DATA / 'frames',\n"
@@ -120,22 +124,69 @@ STEPS = [
     ),
 ]
 
+EVALUATE_INTRO = """# Đánh giá lại checkpoint trên Kaggle — không huấn luyện
+
+Thêm hai Input: **RWF-2000** và thư mục kết quả đã giải nén chứa
+`m1/best.pt`, `m2/best.pt`, `m3/best.pt`, `splits.csv` từ cùng lần huấn luyện.
+Bật GPU và Internet. Không cần chạy notebook huấn luyện lại.
+
+Notebook giữ nguyên split cũ, xuất `preds_val.csv`, `preds_test.csv`, bảng so sánh
+F2/F1/Precision với ràng buộc Recall và danh sách FP/FN cần xem lại.
+Ngưỡng luôn chọn trên validation. Không dùng điểm test để chọn chính sách.
+
+Có thể đặt `FIGHT_CHECKPOINTS` trong cell đầu nếu cần chỉ rõ thư mục kết quả;
+`FIGHT_THRESHOLD_STRATEGY` chọn f2/f1/precision_at_recall (mặc định f2).
+Tải `results.zip` ở Output sau khi hoàn tất.
+"""
+
+CHECKPOINT_SETUP = """
+checkpoint_root = os.environ.get('FIGHT_CHECKPOINTS')
+if checkpoint_root:
+    CHECKPOINTS = Path(checkpoint_root)
+else:
+    CHECKPOINTS = next((p.parent.parent for p in Path('/kaggle/input').rglob('best.pt')
+                        if p.parent.name == 'm1' and
+                        all((p.parent.parent / m / 'best.pt').is_file() for m in ['m1', 'm2', 'm3'])), None)
+if CHECKPOINTS is None or not (CHECKPOINTS / 'splits.csv').is_file():
+    raise FileNotFoundError('Can thu muc checkpoint goc kem splits.csv; khong tu chia lai train/val/test.')
+for name in ['m1', 'm2', 'm3']:
+    target = WORK / 'results' / name
+    target.mkdir(parents=True, exist_ok=True)
+    for filename in ['best.pt', 'config.json', 'history.csv']:
+        source = CHECKPOINTS / name / filename
+        if source.is_file():
+            shutil.copy2(source, target / filename)
+print('Checkpoint source:', CHECKPOINTS)
+"""
+
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--evaluate-only", action="store_true")
+    args = parser.parse_args()
     setup = SETUP.replace("__TRAIN_REQUIREMENTS__", repr(training_requirements()))
-    cells = [new_markdown_cell(INTRO), new_code_cell(setup)]
+    cells = [new_markdown_cell(EVALUATE_INTRO if args.evaluate_only else INTRO), new_code_cell(setup + (CHECKPOINT_SETUP if args.evaluate_only else ""))]
     for name in TRAINING_SCRIPTS:
         path = PROJECT / "src" / name
         source = path.read_text(encoding="utf-8")
         cells.append(new_code_cell(f"(SRC / {path.name!r}).write_text({source!r}, encoding='utf-8');"))
-    for title, code in STEPS:
+    steps = STEPS
+    if args.evaluate_only:
+        steps = [
+            ("## 1. Trích frame theo split gốc", "run('prepare_data.py', '--root', ROOT, '--frames', DATA / 'frames', '--reuse-splits', CHECKPOINTS / 'splits.csv')\n"),
+            ("## 2. Crop người cho M3", "run('crop_persons.py', '--frames', DATA / 'frames', '--out', DATA / 'crops', '--size', IMAGE_SIZE)\n"),
+            (STEPS[-2][0].replace("## 6.", "## 3."), STEPS[-2][1]),
+            (STEPS[-1][0].replace("## 7.", "## 4."), STEPS[-1][1]),
+        ]
+    for title, code in steps:
         cells += [new_markdown_cell(title), new_code_cell(code)]
     notebook = new_notebook(
         cells=cells, metadata={"kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"}}
     )
     for cell in notebook.cells:
         cell["id"] = sha256(f"{cell.cell_type}\n{cell.source}".encode("utf-8")).hexdigest()[:12]
-    with (PROJECT / "notebooks" / "kaggle_train.ipynb").open("w", encoding="utf-8", newline="\n") as stream:
+    filename = "kaggle_evaluate.ipynb" if args.evaluate_only else "kaggle_train.ipynb"
+    with (PROJECT / "notebooks" / filename).open("w", encoding="utf-8", newline="\n") as stream:
         nbformat.write(notebook, stream)
 
 

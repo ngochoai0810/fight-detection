@@ -110,7 +110,7 @@ select,input[type=search],input[type=text] { min-height:40px; max-width:100%; bo
 .camera-controls { min-width:0; padding:24px; }
 .camera-controls p { font-size:12px; color:var(--text-muted); }
 #cameraForm { display:grid; gap:12px; }
-#cameraThreshold { min-height:40px; width:100%; padding:8px 11px; border:2px solid var(--ink); border-radius:14px; }
+#cameraThreshold,#cameraWindow { min-height:40px; width:100%; padding:8px 11px; border:2px solid var(--ink); border-radius:14px; }
 .camera-actions { display:flex; flex-wrap:wrap; gap:12px; margin:7px 0 18px; }
 .camera-metrics { display:flex; flex-wrap:wrap; gap:12px; margin:16px 0; }
 .camera-metrics span { flex:1; padding:10px 14px; border:2px solid #d4dfca; border-radius:16px; font-size:11px; background:#f6f9f1; }

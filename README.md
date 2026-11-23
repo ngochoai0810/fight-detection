@@ -143,3 +143,39 @@ Mặc định bỏ qua smoke test. Chạy toàn bộ luồng trên dữ liệu t
 - `src/templates/dashboard.html`: bố cục giao diện.
 - `src/assets/dashboard.css`: kiểu dáng; `detection.js`, `camera.js`, `evidence.js`: các luồng giao diện.
 - `src/live_camera.py`, `src/inference.py`, `src/monitoring.py`: camera, nhận diện và lưu bằng chứng.
+
+## Cảnh báo Telegram
+
+Tạo bot bằng Telegram @BotFather (https://t.me/BotFather): gửi `/newbot`, đặt tên và lưu token riêng.
+Mở cuộc trò chuyện với bot vừa tạo và bấm Start (hoặc gửi `/start`).
+
+Trong PowerShell tại thư mục dự án, nhập token kín, rồi lấy chat ID:
+
+```powershell
+$botSecret = Read-Host 'Bot token' -AsSecureString
+$env:TELEGRAM_BOT_TOKEN = [System.Net.NetworkCredential]::new('', $botSecret).Password
+$botUpdates = Invoke-RestMethod -Uri "https://api.telegram.org/bot$($env:TELEGRAM_BOT_TOKEN)/getUpdates"
+$botUpdates.result | ForEach-Object { $_.message.chat } | Select-Object id, type
+$env:TELEGRAM_CHAT_ID = Read-Host 'Nhap chat ID cua ban'
+```
+
+Không chia sẻ token hoặc ảnh chụp chứa token. Nếu danh sách trống, gửi tin nhắn mới cho bot rồi chạy lại lệnh lấy updates.
+Không mở URL chứa token trên trình duyệt hoặc chia sẻ lỗi PowerShell có URL này.
+
+Kiểm tra gửi một tin (chỉ chạy khi bạn muốn gửi thật):
+
+```powershell
+python -c "import sys,os; sys.path.insert(0,'src'); from telegram_alerts import send_message; send_message(os.environ['TELEGRAM_BOT_TOKEN'],os.environ['TELEGRAM_CHAT_ID'],'Kiem tra canh bao Telegram')"
+```
+
+Sau đó chạy lệnh camera hoặc dashboard hiện có trong **cùng cửa sổ PowerShell**.
+Cấu hình áp dụng cho cả hai; không có token/chat ID thì Telegram tắt.
+Các biến trên chỉ tồn tại trong phiên PowerShell; dự án không tự đọc file `.env`.
+
+Mỗi đợt cảnh báo đã xác nhận gửi một tin văn bản gồm thời gian, nguồn và điểm mô hình;
+hai tin cách nhau tối thiểu 60 giây. Đợt mới trong thời gian chờ bị bỏ qua.
+Gửi chạy nền với timeout 10 giây, không tự thử lại khi lỗi và không gửi ảnh/clip.
+Đợt cảnh báo kéo dài không gửi nhắc lại. Hãy giữ ứng dụng chạy và bật thông báo Telegram trên điện thoại.
+Tin đang gửi có thể bị ngắt khi thoát chương trình.
+
+Tài liệu chính thức: https://core.telegram.org/bots/tutorial và https://core.telegram.org/bots/api#sendmessage.

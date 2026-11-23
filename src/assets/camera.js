@@ -9,14 +9,19 @@
     function renderCamera(state) {
       const busy = ['starting','running','stopping'].includes(state.status);
       start.disabled = busy; stop.disabled = !busy || state.status === 'stopping';
-      ['cameraSource','cameraModel','cameraThreshold'].forEach(id => document.getElementById(id).disabled = busy);
+      ['cameraSource','cameraModel','cameraThreshold','cameraWindow'].forEach(id => document.getElementById(id).disabled = busy);
+      if (busy) {
+        document.getElementById('cameraModel').value = state.model;
+        document.getElementById('cameraSource').value = String(state.source);
+        if (state.window_seconds != null) document.getElementById('cameraWindow').value = state.window_seconds;
+      }
       const labels = {starting:'Đang khởi động',running:'Đang quan sát',stopping:'Đang dừng',stopped:'Đã tắt',failed:'Cần kiểm tra'};
       badge.textContent = state.active ? '⚑ Cảnh báo đánh nhau' : state.pending ? 'Đang xác nhận' : labels[state.status] || state.status;
       badge.className = 'badge ' + (state.active ? 'badge-critical' : state.pending ? 'badge-high' : state.status === 'running' ? 'badge-true' : 'badge-false');
       if (state.status === 'running') {
         if (!stream.getAttribute('src')) stream.src = '/api/camera/stream?t=' + Date.now();
         stream.hidden = false; placeholder.hidden = true;
-        status.textContent = !state.ready ? 'Đang lấy đủ khung hình cho model…' : state.active ? 'Phát hiện đánh nhau. Đang lưu clip bằng chứng.' : state.pending ? 'Điểm vượt ngưỡng. Đang chờ xác nhận cảnh báo…' : 'Đang quan sát · Ngưỡng ' + (state.threshold * 100).toFixed(1) + '%';
+        status.textContent = !state.ready ? 'Đang lấy cửa sổ M3: ' + (state.window_coverage || 0).toFixed(1) + '/' + (state.window_seconds || 5) + ' giây…' : state.active ? 'Phát hiện đánh nhau. Đang lưu clip bằng chứng.' : state.pending ? 'Điểm vượt ngưỡng. Đang chờ xác nhận cảnh báo…' : 'Đang quan sát · Ngưỡng ' + (state.threshold * 100).toFixed(1) + '%';
       } else {
         stream.removeAttribute('src'); stream.hidden = true; placeholder.hidden = false;
         status.textContent = state.status === 'failed' ? 'Không thể chạy camera: ' + state.error : state.status === 'starting' ? 'Đang tải model và mở camera…' : state.status === 'stopping' ? 'Đang dừng và hoàn tất clip bằng chứng…' : 'Camera đã tắt. Bạn có thể bắt đầu phiên mới.';
@@ -50,7 +55,7 @@
     document.getElementById('cameraForm').addEventListener('submit', event => {
       event.preventDefault();
       const threshold = document.getElementById('cameraThreshold').value;
-      control('start', {source:Number(document.getElementById('cameraSource').value),model:document.getElementById('cameraModel').value,threshold:threshold === '' ? null : Number(threshold)});
+      control('start', {source:Number(document.getElementById('cameraSource').value),model:document.getElementById('cameraModel').value,threshold:threshold === '' ? null : Number(threshold),window_seconds:Number(document.getElementById('cameraWindow').value)});
     });
     stop.addEventListener('click', () => control('stop'));
     pollCamera();
